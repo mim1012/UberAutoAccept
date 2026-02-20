@@ -3,6 +3,7 @@ package com.uber.autoaccept.state
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
+import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.delay
@@ -111,6 +112,7 @@ class AcceptingHandler : BaseStateHandler() {
         if (storedButton != null && com.uber.autoaccept.utils.AccessibilityHelper.isNodeValid(storedButton) && storedButton.isClickable) {
             if (storedButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                 Log.i(TAG, "✅ 수락 버튼 클릭 성공 (1차: 저장된 노드)")
+                RemoteLogger.logActionResult("accept", true, "1차_저장노드")
                 return StateEvent.AcceptSuccess("1차_저장노드")
             }
             Log.w(TAG, "저장된 노드 클릭 실패, fallback 시도...")
@@ -127,6 +129,7 @@ class AcceptingHandler : BaseStateHandler() {
             if (btn != null && btn.isClickable) {
                 if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     Log.i(TAG, "✅ 수락 버튼 클릭 성공 (2차: ViewId fallback: $viewId)")
+                    RemoteLogger.logActionResult("accept", true, "2차_ViewId($viewId)")
                     return StateEvent.AcceptSuccess("2차_ViewId($viewId)")
                 }
             }
@@ -138,12 +141,14 @@ class AcceptingHandler : BaseStateHandler() {
             if (btn != null && btn.isClickable) {
                 if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     Log.i(TAG, "✅ 수락 버튼 클릭 성공 (3차: 텍스트 fallback: $text)")
+                    RemoteLogger.logActionResult("accept", true, "3차_텍스트($text)")
                     return StateEvent.AcceptSuccess("3차_텍스트($text)")
                 }
             }
         }
 
         Log.e(TAG, "❌ 모든 fallback 실패")
+        RemoteLogger.logActionResult("accept", false, "1차/2차/3차 모두 실패")
         return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차/2차/3차 모두 실패)")
     }
 }
@@ -181,8 +186,9 @@ class RejectedHandler : BaseStateHandler() {
             return null
         }
         
+        RemoteLogger.logActionResult("reject", true, state.reason)
         Log.w(TAG, "콜 거부됨: ${state.reason}")
-        
+
         // 1초 후 온라인 상태로 복귀
         delay(1000)
         

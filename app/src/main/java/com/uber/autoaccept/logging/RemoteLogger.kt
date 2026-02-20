@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * 원격 로깅 싱글톤.
- * - offer_logs: 파싱/액션/라이프사이클 로그 (anon INSERT)
+ * - uber_logs: 파싱/액션/라이프사이클 로그 (anon INSERT)
  * - uber_users: 기기 상태 UPSERT (device_id 기준, 10초마다 heartbeat)
  */
 object RemoteLogger {
@@ -136,18 +136,9 @@ object RemoteLogger {
         ))
     }
 
-    /** SettingsActivity testConnectionButton 호환 시그니처 유지 */
-    fun testConnection(@Suppress("UNUSED_PARAMETER") ignored: String, callback: (Boolean, String) -> Unit) {
-        CoroutineScope(Dispatchers.IO).launch {
-            val ok = try {
-                SupabaseClient.rpcPost("check_license", mapOf("p_identifier" to deviceId))
-                true
-            } catch (e: Exception) { false }
-            withContext(Dispatchers.Main) {
-                if (ok) callback(true, "Supabase 연결 성공")
-                else callback(false, "연결 실패 또는 기기 미등록")
-            }
-        }
+    fun flushNow() {
+        if (!enabled) return
+        scope?.launch { flush() }
     }
 
     private fun enqueue(entry: LogEntry) {
@@ -174,7 +165,7 @@ object RemoteLogger {
                     data = entry.data
                 )
             }
-            SupabaseClient.restPost("offer_logs", rows, SupabaseConfig.SUPABASE_ANON_KEY)
+            SupabaseClient.restPost("uber_logs", rows, SupabaseConfig.SUPABASE_ANON_KEY)
         } catch (e: Exception) {
             Log.w(TAG, "Flush failed: ${e.message}")
             for (entry in entries) {

@@ -15,22 +15,29 @@ create table if not exists public.licenses (
     created_at timestamptz default now()
 );
 
--- 2. Offer Logs (오퍼 파싱/액션/라이프사이클 로그)
-create table if not exists public.offer_logs (
+-- 2. Uber Logs (오퍼 파싱/액션/라이프사이클/viewid_health 로그)
+create table if not exists public.uber_logs (
     id uuid default gen_random_uuid() primary key,
     device_id text not null,
-    log_type text not null,
+    log_type text not null,         -- 'parse', 'action', 'lifecycle', 'viewid_health'
     logged_at timestamptz default now(),
     data jsonb
 );
 
--- 3. Heartbeats (서비스 상태 주기 보고)
-create table if not exists public.heartbeats (
-    id uuid default gen_random_uuid() primary key,
-    device_id text not null,
-    logged_at timestamptz default now(),
+-- 3. Uber Users (기기 상태 heartbeat, device_id 기준 UPSERT)
+create table if not exists public.uber_users (
+    device_id text primary key,
+    phone_number text,
+    service_connected boolean default false,
+    current_state text,
+    last_heartbeat_at timestamptz,
     uptime_seconds bigint,
-    current_state text
+    device_name text,
+    os_version text,
+    app_version text,
+    filter_mode text,
+    updated_at timestamptz default now(),
+    created_at timestamptz default now()
 );
 
 -- =============================================================
@@ -84,22 +91,28 @@ grant execute on function check_license(text) to authenticated;
 -- =============================================================
 
 alter table public.licenses enable row level security;
-alter table public.offer_logs enable row level security;
-alter table public.heartbeats enable row level security;
+alter table public.uber_logs enable row level security;
+alter table public.uber_users enable row level security;
 
 -- Licenses: 직접 조회 불가 (RPC 함수를 통해서만 접근)
 -- (관리자는 Supabase Dashboard에서 직접 관리)
 
--- Offer Logs: anon INSERT 허용 (기기ID로만 식별)
-create policy "Anon can insert logs"
-    on public.offer_logs for insert
+-- Uber Logs: anon INSERT 허용 (기기ID로만 식별)
+create policy "Anon can insert uber_logs"
+    on public.uber_logs for insert
     to anon
     with check (true);
 
--- Heartbeats: anon INSERT 허용
-create policy "Anon can insert heartbeats"
-    on public.heartbeats for insert
+-- Uber Users: anon UPSERT 허용 (INSERT + UPDATE, device_id 기준 merge)
+create policy "Anon can insert uber_users"
+    on public.uber_users for insert
     to anon
+    with check (true);
+
+create policy "Anon can update uber_users"
+    on public.uber_users for update
+    to anon
+    using (true)
     with check (true);
 
 -- =============================================================

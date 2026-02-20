@@ -104,31 +104,6 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="서버 URL"
-            android:textSize="14sp"
-            android:layout_marginBottom="4dp" />
-
-        <EditText
-            android:id="@+id/server_url_edit"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="http://your-server.com"
-            android:inputType="textUri"
-            android:textSize="14sp"
-            android:layout_marginBottom="12dp" />
-
-        <Button
-            android:id="@+id/test_connection_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="연결 테스트"
-            android:textSize="14sp"
-            style="?android:attr/buttonBarButtonStyle"
-            android:layout_marginBottom="24dp" />
-
         <Button
             android:id="@+id/save_button"
             android:layout_width="match_parent"

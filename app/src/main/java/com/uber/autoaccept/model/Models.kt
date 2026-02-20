@@ -80,6 +80,5 @@ data class AppConfig(
     val autoAcceptDelay: Long = 200L,  // 수락 버튼 클릭 전 딜레이 (ms)
     val humanizationEnabled: Boolean = true,  // 인간 행동 시뮬레이션
     val remoteLoggingEnabled: Boolean = true,
-    val remoteServerUrl: String = "https://uber-logger.your-domain.com",
     val deviceId: String = ""
 )

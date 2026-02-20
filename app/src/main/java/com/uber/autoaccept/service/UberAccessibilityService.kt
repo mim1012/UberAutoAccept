@@ -65,6 +65,7 @@ class UberAccessibilityService : AccessibilityService() {
         RemoteLogger.initialize(this, config.deviceId, config.remoteLoggingEnabled)
         RemoteLogger.currentStateSupplier = { stateMachine.getCurrentState()::class.simpleName ?: "unknown" }
         RemoteLogger.logServiceConnected()
+        RemoteLogger.flushNow()
 
         // 상태 핸들러 등록
         registerStateHandlers()
@@ -177,10 +178,13 @@ class UberAccessibilityService : AccessibilityService() {
             "uda_details_dropoff_address_text_view"
         )
         
+        RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
+        RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
+
         if (pickupNode != null && dropoffNode != null) {
             return true
         }
-        
+
         // 전략 2: 텍스트 기반 감지 (Fallback)
         val allText = com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(rootNode)
         return allText.contains("Pickup", ignoreCase = true) && 
@@ -221,7 +225,6 @@ class UberAccessibilityService : AccessibilityService() {
             autoAcceptDelay = prefs.getLong("auto_accept_delay", 200L),
             humanizationEnabled = prefs.getBoolean("humanization_enabled", true),
             remoteLoggingEnabled = prefs.getBoolean("remote_logging_enabled", true),
-            remoteServerUrl = prefs.getString("remote_server_url", "https://uber-logger.your-domain.com") ?: "https://uber-logger.your-domain.com",
             deviceId = deviceId
         )
     }

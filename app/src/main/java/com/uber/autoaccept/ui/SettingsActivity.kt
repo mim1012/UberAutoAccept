@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.uber.autoaccept.R
-import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.FilterMode
 
 class SettingsActivity : AppCompatActivity() {
@@ -17,8 +16,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var airportDistanceText: TextView
     private lateinit var saveButton: Button
     private lateinit var remoteLoggingSwitch: Switch
-    private lateinit var serverUrlEdit: EditText
-    private lateinit var testConnectionButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,8 +31,6 @@ class SettingsActivity : AppCompatActivity() {
         airportDistanceText = findViewById(R.id.airport_distance_text)
         saveButton = findViewById(R.id.save_button)
         remoteLoggingSwitch = findViewById(R.id.remote_logging_switch)
-        serverUrlEdit = findViewById(R.id.server_url_edit)
-        testConnectionButton = findViewById(R.id.test_connection_button)
 
         setupModeSpinner()
         setupDistanceSeekBars()
@@ -47,24 +42,6 @@ class SettingsActivity : AppCompatActivity() {
             finish()
         }
 
-        testConnectionButton.setOnClickListener {
-            val url = serverUrlEdit.text.toString().trim()
-            if (url.isBlank()) {
-                Toast.makeText(this, "서버 URL을 입력하세요", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            testConnectionButton.isEnabled = false
-            testConnectionButton.text = "테스트 중..."
-            RemoteLogger.testConnection(url) { success, message ->
-                testConnectionButton.isEnabled = true
-                testConnectionButton.text = "연결 테스트"
-                if (success) {
-                    Toast.makeText(this, "연결 성공: $message", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "연결 실패: $message", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
     }
     
     private fun setupModeSpinner() {
@@ -116,7 +93,6 @@ class SettingsActivity : AppCompatActivity() {
         airportDistanceSeekBar.progress = (airportDist * 10).toInt()
 
         remoteLoggingSwitch.isChecked = prefs.getBoolean("remote_logging_enabled", true)
-        serverUrlEdit.setText(prefs.getString("remote_server_url", "https://uber-logger.your-domain.com"))
     }
     
     private fun saveSettings() {
@@ -137,7 +113,6 @@ class SettingsActivity : AppCompatActivity() {
             putFloat("seoul_pickup_max_distance", seoulDist)
             putFloat("airport_pickup_max_distance", airportDist)
             putBoolean("remote_logging_enabled", remoteLoggingSwitch.isChecked)
-            putString("remote_server_url", serverUrlEdit.text.toString().trim())
             apply()
         }
     }
