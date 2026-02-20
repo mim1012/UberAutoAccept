@@ -10,52 +10,64 @@ class FilterEngine(private val settings: FilterSettings) {
     companion object {
         private const val TAG = "FilterEngine"
     }
-    
+
     fun isEligible(offer: UberOffer): FilterResult {
-        val reasons = mutableListOf<String>()
-        
-        if (!isCustomerDistanceValid(offer.customerDistance, reasons)) {
-            return FilterResult.Rejected(reasons)
+        if (settings.mode == FilterMode.DISABLED) {
+            return FilterResult.Rejected(listOf("필터 비활성화"))
         }
-        
-        val isAirport = isAirportMode(offer)
-        val isSeoul = isSeoulEntryMode(offer)
-        
-        val accepted = when (settings.mode) {
-            FilterMode.AIRPORT -> isAirport
-            FilterMode.SEOUL_ENTRY -> isSeoul
-            FilterMode.BOTH -> isAirport || isSeoul
-            FilterMode.DISABLED -> false
+
+        val pickupFromSeoul = isPickupSeoul(offer)
+        val pickupFromAirport = isPickupAirport(offer)
+
+        // 시나리오 1: 출발지 서울 → 도착지 인천공항 키워드 + 고객거리 3km 이내
+        if (pickupFromSeoul && (settings.mode == FilterMode.SEOUL_ENTRY || settings.mode == FilterMode.BOTH)) {
+            val dropoffToAirport = settings.airportKeywords.any {
+                offer.dropoffLocation.contains(it, ignoreCase = true)
+            }
+            if (dropoffToAirport) {
+                if (offer.customerDistance <= settings.seoulPickupMaxDistance) {
+                    val reason = "서울출발→인천공항 (고객거리 ${fmt(offer.customerDistance)}km)"
+                    Log.i(TAG, "✅ $reason: ${offer.pickupLocation} -> ${offer.dropoffLocation}")
+                    return FilterResult.Accepted(listOf(reason))
+                } else {
+                    val reason = "서울출발→인천공항이나 고객거리 ${fmt(offer.customerDistance)}km > ${fmt(settings.seoulPickupMaxDistance)}km"
+                    Log.w(TAG, "❌ $reason")
+                    return FilterResult.Rejected(listOf(reason))
+                }
+            }
         }
-        
-        return if (accepted) {
-            reasons.add("조건 충족")
-            Log.i(TAG, "✅ 오퍼 수락: ${offer.pickupLocation} -> ${offer.dropoffLocation}")
-            FilterResult.Accepted(reasons)
-        } else {
-            reasons.add("지정된 모드 조건 불일치")
-            Log.w(TAG, "❌ 오퍼 거부: ${reasons.joinToString()}")
-            FilterResult.Rejected(reasons)
+
+        // 시나리오 2: 출발지 인천공항 → 모든 콜 수락 + 고객거리 7km 이내
+        if (pickupFromAirport && (settings.mode == FilterMode.AIRPORT || settings.mode == FilterMode.BOTH)) {
+            if (offer.customerDistance <= settings.airportPickupMaxDistance) {
+                val reason = "인천공항출발→전체 (고객거리 ${fmt(offer.customerDistance)}km)"
+                Log.i(TAG, "✅ $reason: ${offer.pickupLocation} -> ${offer.dropoffLocation}")
+                return FilterResult.Accepted(listOf(reason))
+            } else {
+                val reason = "인천공항출발이나 고객거리 ${fmt(offer.customerDistance)}km > ${fmt(settings.airportPickupMaxDistance)}km"
+                Log.w(TAG, "❌ $reason")
+                return FilterResult.Rejected(listOf(reason))
+            }
+        }
+
+        val reason = "출발지가 서울/인천공항 조건에 해당하지 않음 (출발: ${offer.pickupLocation})"
+        Log.w(TAG, "❌ $reason")
+        return FilterResult.Rejected(listOf(reason))
+    }
+
+    /** 출발지가 서울 지역인지 */
+    private fun isPickupSeoul(offer: UberOffer): Boolean {
+        return settings.seoulKeywords.any {
+            offer.pickupLocation.contains(it, ignoreCase = true)
         }
     }
-    
-    private fun isCustomerDistanceValid(distance: Double, reasons: MutableList<String>): Boolean {
-        val isValid = distance >= settings.minCustomerDistance && distance <= settings.maxCustomerDistance
-        if (!isValid) {
-            reasons.add("고객 거리(${String.format("%.1f", distance)}km) 범위 이탈")
-        }
-        return isValid
-    }
-    
-    private fun isAirportMode(offer: UberOffer): Boolean {
-        return settings.airportKeywords.any { 
-            offer.dropoffLocation.contains(it, ignoreCase = true) 
+
+    /** 출발지가 인천공항 지역인지 */
+    private fun isPickupAirport(offer: UberOffer): Boolean {
+        return settings.airportKeywords.any {
+            offer.pickupLocation.contains(it, ignoreCase = true)
         }
     }
-    
-    private fun isSeoulEntryMode(offer: UberOffer): Boolean {
-        return settings.seoulKeywords.any { 
-            offer.dropoffLocation.contains(it, ignoreCase = true) 
-        }
-    }
+
+    private fun fmt(d: Double) = String.format("%.1f", d)
 }

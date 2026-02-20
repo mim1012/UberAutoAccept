@@ -2,6 +2,8 @@ package com.uber.autoaccept.utils
 
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import com.uber.autoaccept.logging.ParsedOfferData
+import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.ParseConfidence
 import com.uber.autoaccept.model.UberOffer
 import java.util.UUID
@@ -24,6 +26,7 @@ class UberOfferParser {
             
             if (pickupAddress == null || dropoffAddress == null) {
                 Log.w(TAG, "필수 정보 누락: pickup=$pickupAddress, dropoff=$dropoffAddress")
+                RemoteLogger.logParseResult(false, null, "필수 정보 누락: pickup=$pickupAddress, dropoff=$dropoffAddress")
                 return null
             }
             
@@ -40,7 +43,7 @@ class UberOfferParser {
                 - 여행 거리: ${tripDistance}km
             """.trimIndent())
             
-            return UberOffer(
+            val offer = UberOffer(
                 offerUuid = UUID.randomUUID().toString(),
                 pickupLocation = pickupAddress,
                 dropoffLocation = dropoffAddress,
@@ -52,8 +55,24 @@ class UberOfferParser {
                 acceptButtonNode = acceptButton,
                 parseConfidence = ParseConfidence.HIGH
             )
+
+            RemoteLogger.logParseResult(
+                true,
+                ParsedOfferData(
+                    offerUuid = offer.offerUuid,
+                    pickup = offer.pickupLocation,
+                    dropoff = offer.dropoffLocation,
+                    customerDistance = offer.customerDistance,
+                    tripDistance = offer.tripDistance,
+                    parseConfidence = offer.parseConfidence.name
+                ),
+                null
+            )
+
+            return offer
         } catch (e: Exception) {
             Log.e(TAG, "ViewId 파싱 오류: ${e.message}", e)
+            RemoteLogger.logParseResult(false, null, "ViewId 파싱 오류: ${e.message}")
             return null
         }
     }

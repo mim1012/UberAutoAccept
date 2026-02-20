@@ -5,39 +5,65 @@ import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.uber.autoaccept.R
+import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.FilterMode
 
 class SettingsActivity : AppCompatActivity() {
     
     private lateinit var modeSpinner: Spinner
-    private lateinit var minDistanceSeekBar: SeekBar
-    private lateinit var maxDistanceSeekBar: SeekBar
-    private lateinit var minDistanceText: TextView
-    private lateinit var maxDistanceText: TextView
+    private lateinit var seoulDistanceSeekBar: SeekBar
+    private lateinit var airportDistanceSeekBar: SeekBar
+    private lateinit var seoulDistanceText: TextView
+    private lateinit var airportDistanceText: TextView
     private lateinit var saveButton: Button
-    
+    private lateinit var remoteLoggingSwitch: Switch
+    private lateinit var serverUrlEdit: EditText
+    private lateinit var testConnectionButton: Button
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
-        
+
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "설정"
-        
+
         modeSpinner = findViewById(R.id.mode_spinner)
-        minDistanceSeekBar = findViewById(R.id.min_distance_seekbar)
-        maxDistanceSeekBar = findViewById(R.id.max_distance_seekbar)
-        minDistanceText = findViewById(R.id.min_distance_text)
-        maxDistanceText = findViewById(R.id.max_distance_text)
+        seoulDistanceSeekBar = findViewById(R.id.seoul_distance_seekbar)
+        airportDistanceSeekBar = findViewById(R.id.airport_distance_seekbar)
+        seoulDistanceText = findViewById(R.id.seoul_distance_text)
+        airportDistanceText = findViewById(R.id.airport_distance_text)
         saveButton = findViewById(R.id.save_button)
-        
+        remoteLoggingSwitch = findViewById(R.id.remote_logging_switch)
+        serverUrlEdit = findViewById(R.id.server_url_edit)
+        testConnectionButton = findViewById(R.id.test_connection_button)
+
         setupModeSpinner()
         setupDistanceSeekBars()
         loadSettings()
-        
+
         saveButton.setOnClickListener {
             saveSettings()
             Toast.makeText(this, "설정이 저장되었습니다", Toast.LENGTH_SHORT).show()
             finish()
+        }
+
+        testConnectionButton.setOnClickListener {
+            val url = serverUrlEdit.text.toString().trim()
+            if (url.isBlank()) {
+                Toast.makeText(this, "서버 URL을 입력하세요", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            testConnectionButton.isEnabled = false
+            testConnectionButton.text = "테스트 중..."
+            RemoteLogger.testConnection(url) { success, message ->
+                testConnectionButton.isEnabled = true
+                testConnectionButton.text = "연결 테스트"
+                if (success) {
+                    Toast.makeText(this, "연결 성공: $message", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "연결 실패: $message", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
     
@@ -49,22 +75,22 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun setupDistanceSeekBars() {
-        minDistanceSeekBar.max = 50 // 0.0 ~ 5.0 km (0.1 단위)
-        maxDistanceSeekBar.max = 50
-        
-        minDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        seoulDistanceSeekBar.max = 100   // 0.0 ~ 10.0 km (0.1 단위)
+        airportDistanceSeekBar.max = 150 // 0.0 ~ 15.0 km (0.1 단위)
+
+        seoulDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val distance = progress / 10.0
-                minDistanceText.text = String.format("최소 거리: %.1f km", distance)
+                seoulDistanceText.text = String.format("최대 고객 거리: %.1f km", distance)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-        
-        maxDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+
+        airportDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val distance = progress / 10.0
-                maxDistanceText.text = String.format("최대 거리: %.1f km", distance)
+                airportDistanceText.text = String.format("최대 고객 거리: %.1f km", distance)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -73,7 +99,7 @@ class SettingsActivity : AppCompatActivity() {
     
     private fun loadSettings() {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
-        
+
         val modeString = prefs.getString("filter_mode", FilterMode.BOTH.name) ?: FilterMode.BOTH.name
         val modeIndex = when (modeString) {
             FilterMode.AIRPORT.name -> 0
@@ -82,31 +108,36 @@ class SettingsActivity : AppCompatActivity() {
             else -> 3
         }
         modeSpinner.setSelection(modeIndex)
-        
-        val minDistance = prefs.getFloat("min_customer_distance", 1.0f)
-        val maxDistance = prefs.getFloat("max_customer_distance", 3.0f)
-        
-        minDistanceSeekBar.progress = (minDistance * 10).toInt()
-        maxDistanceSeekBar.progress = (maxDistance * 10).toInt()
+
+        val seoulDist = prefs.getFloat("seoul_pickup_max_distance", 3.0f)
+        val airportDist = prefs.getFloat("airport_pickup_max_distance", 7.0f)
+
+        seoulDistanceSeekBar.progress = (seoulDist * 10).toInt()
+        airportDistanceSeekBar.progress = (airportDist * 10).toInt()
+
+        remoteLoggingSwitch.isChecked = prefs.getBoolean("remote_logging_enabled", true)
+        serverUrlEdit.setText(prefs.getString("remote_server_url", "https://uber-logger.your-domain.com"))
     }
     
     private fun saveSettings() {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
-        
+
         val mode = when (modeSpinner.selectedItemPosition) {
             0 -> FilterMode.AIRPORT
             1 -> FilterMode.SEOUL_ENTRY
             2 -> FilterMode.BOTH
             else -> FilterMode.DISABLED
         }
-        
-        val minDistance = minDistanceSeekBar.progress / 10.0f
-        val maxDistance = maxDistanceSeekBar.progress / 10.0f
-        
+
+        val seoulDist = seoulDistanceSeekBar.progress / 10.0f
+        val airportDist = airportDistanceSeekBar.progress / 10.0f
+
         prefs.edit().apply {
             putString("filter_mode", mode.name)
-            putFloat("min_customer_distance", minDistance)
-            putFloat("max_customer_distance", maxDistance)
+            putFloat("seoul_pickup_max_distance", seoulDist)
+            putFloat("airport_pickup_max_distance", airportDist)
+            putBoolean("remote_logging_enabled", remoteLoggingSwitch.isChecked)
+            putString("remote_server_url", serverUrlEdit.text.toString().trim())
             apply()
         }
     }

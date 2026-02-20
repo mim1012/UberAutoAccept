@@ -1,6 +1,7 @@
 package com.uber.autoaccept.engine
 
 import android.util.Log
+import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.AppState
 import com.uber.autoaccept.model.StateEvent
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,7 +125,7 @@ class StateMachine {
             
             is AppState.Accepting -> {
                 when (event) {
-                    is StateEvent.AcceptSuccess -> AppState.Accepted(current.offer)
+                    is StateEvent.AcceptSuccess -> AppState.Accepted(current.offer, event.strategy)
                     is StateEvent.AcceptFailed -> AppState.Error("수락 실패")
                     is StateEvent.ErrorOccurred -> AppState.Error(event.message, event.exception)
                     is StateEvent.Reset -> AppState.Online
@@ -189,13 +190,19 @@ class StateMachine {
     private fun onStateEntered(state: AppState) {
         when (state) {
             is AppState.Accepted -> {
-                Log.i(TAG, "✅ 콜 수락 성공: ${state.offer.pickupLocation} -> ${state.offer.dropoffLocation}")
+                Log.i(TAG, "✅ 콜 수락 성공 [${state.strategy}]: ${state.offer.pickupLocation} -> ${state.offer.dropoffLocation}")
+                RemoteLogger.logActionResult(
+                    "accept", true,
+                    "strategy=${state.strategy}, ${state.offer.pickupLocation} -> ${state.offer.dropoffLocation}"
+                )
             }
             is AppState.Rejected -> {
                 Log.w(TAG, "❌ 콜 거부: ${state.reason}")
+                RemoteLogger.logActionResult("reject", true, state.reason)
             }
             is AppState.Error -> {
                 Log.e(TAG, "⚠️ 오류 발생: ${state.message}", state.exception)
+                RemoteLogger.logActionResult("error", false, state.message)
             }
             else -> {}
         }

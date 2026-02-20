@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/floating_bg"
+    android:padding="8dp"
+    android:gravity="center"
+    android:alpha="0.92">
+
+    <TextView
+        android:id="@+id/floating_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="정지"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/floating_start_btn"
+            android:layout_width="48dp"
+            android:layout_height="36dp"
+            android:text="▶"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#4CAF50"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
+
+        <Button
+            android:id="@+id/floating_stop_btn"
+            android:layout_width="48dp"
+            android:layout_height="36dp"
+            android:text="■"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#F44336"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
+
+        <Button
+            android:id="@+id/floating_close_btn"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:text="✕"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#757575"
+            android:layout_marginStart="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
+    </LinearLayout>
+
+</LinearLayout>

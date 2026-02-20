@@ -38,7 +38,7 @@ sealed class AppState {
     /**
      * 수락 완료 상태 - 콜 수락 성공
      */
-    data class Accepted(val offer: UberOffer) : AppState()
+    data class Accepted(val offer: UberOffer, val strategy: String = "") : AppState()
     
     /**
      * 거부 상태 - 조건에 맞지 않아 무시
@@ -63,7 +63,7 @@ sealed class StateEvent {
     data class OfferParsed(val offer: UberOffer) : StateEvent()
     data class OfferFiltered(val accepted: Boolean, val reason: String) : StateEvent()
     object AcceptButtonClicked : StateEvent()
-    object AcceptSuccess : StateEvent()
+    data class AcceptSuccess(val strategy: String = "unknown") : StateEvent()
     object AcceptFailed : StateEvent()
     data class ErrorOccurred(val message: String, val exception: Throwable? = null) : StateEvent()
     object Reset : StateEvent()

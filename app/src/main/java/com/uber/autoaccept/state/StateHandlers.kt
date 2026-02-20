@@ -15,12 +15,12 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
     override fun canHandle(state: AppState): Boolean = state is AppState.OfferDetected
     
     override suspend fun handle(state: AppState, rootNode: AccessibilityNodeInfo?): StateEvent? {
-        if (state !is AppState.OfferDetected || !rootNode.isValid()) {
+        if (state !is AppState.OfferDetected || rootNode == null || !rootNode.isValid()) {
             return StateEvent.ErrorOccurred("Invalid state or node")
         }
-        
+
         Log.d(TAG, "오퍼 파싱 시작...")
-        
+
         val offer = parser.parseOfferDetails(rootNode)
         
         return if (offer != null) {
@@ -89,31 +89,62 @@ class ReadyToAcceptHandler(private val config: AppConfig) : BaseStateHandler() {
  * 실제 수락 버튼 클릭 실행
  */
 class AcceptingHandler : BaseStateHandler() {
+    companion object {
+        private val ACCEPT_BUTTON_VIEW_IDS = listOf(
+            "upfront_offer_configurable_details_accept_button",
+            "upfront_offer_configurable_details_auditable_accept_button"
+        )
+        private val ACCEPT_BUTTON_TEXTS = listOf("수락", "확인", "Accept", "ACCEPT")
+    }
+
     override fun canHandle(state: AppState): Boolean = state is AppState.Accepting
-    
+
     override suspend fun handle(state: AppState, rootNode: AccessibilityNodeInfo?): StateEvent? {
         if (state !is AppState.Accepting) {
             return StateEvent.ErrorOccurred("Invalid state")
         }
-        
+
         Log.d(TAG, "수락 버튼 클릭 시도...")
-        
-        val acceptButton = state.offer.acceptButtonNode
-        
-        if (acceptButton != null && acceptButton.isClickable) {
-            val success = acceptButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            
-            return if (success) {
-                Log.i(TAG, "✅ 수락 버튼 클릭 성공")
-                StateEvent.AcceptSuccess
-            } else {
-                Log.e(TAG, "❌ 수락 버튼 클릭 실패")
-                StateEvent.AcceptFailed
+
+        // 1차: 파싱 시점에 저장된 노드 사용
+        val storedButton = state.offer.acceptButtonNode
+        if (storedButton != null && com.uber.autoaccept.utils.AccessibilityHelper.isNodeValid(storedButton) && storedButton.isClickable) {
+            if (storedButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                Log.i(TAG, "✅ 수락 버튼 클릭 성공 (1차: 저장된 노드)")
+                return StateEvent.AcceptSuccess("1차_저장노드")
             }
-        } else {
-            Log.e(TAG, "❌ 수락 버튼을 찾을 수 없음")
+            Log.w(TAG, "저장된 노드 클릭 실패, fallback 시도...")
+        }
+
+        if (!rootNode.isValid()) {
+            Log.e(TAG, "❌ rootNode 무효 - fallback 불가")
             return StateEvent.ErrorOccurred("수락 버튼 없음")
         }
+
+        // 2차: rootNode에서 ViewId로 재탐색
+        for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
+            val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(rootNode, viewId)
+            if (btn != null && btn.isClickable) {
+                if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    Log.i(TAG, "✅ 수락 버튼 클릭 성공 (2차: ViewId fallback: $viewId)")
+                    return StateEvent.AcceptSuccess("2차_ViewId($viewId)")
+                }
+            }
+        }
+
+        // 3차: rootNode에서 텍스트로 재탐색
+        for (text in ACCEPT_BUTTON_TEXTS) {
+            val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(rootNode, text)
+            if (btn != null && btn.isClickable) {
+                if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    Log.i(TAG, "✅ 수락 버튼 클릭 성공 (3차: 텍스트 fallback: $text)")
+                    return StateEvent.AcceptSuccess("3차_텍스트($text)")
+                }
+            }
+        }
+
+        Log.e(TAG, "❌ 모든 fallback 실패")
+        return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차/2차/3차 모두 실패)")
     }
 }
 

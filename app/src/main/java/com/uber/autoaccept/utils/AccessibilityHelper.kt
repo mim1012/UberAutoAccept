@@ -3,18 +3,36 @@ package com.uber.autoaccept.utils
 import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import com.uber.autoaccept.logging.RemoteLogger
 
 object AccessibilityHelper {
     private const val TAG = "AccessibilityHelper"
     private const val UBER_PACKAGE = "com.ubercab.driver"
-    
+
+    // Key ViewIds to track health for
+    private val TRACKED_VIEW_IDS = setOf(
+        "uda_details_pickup_address_text_view",
+        "uda_details_dropoff_address_text_view",
+        "uda_details_distance_text_view",
+        "uda_details_duration_text_view",
+        "upfront_offer_configurable_details_accept_button",
+        "ub__upfront_offer_map_label"
+    )
+
     fun findNodeByViewId(rootNode: AccessibilityNodeInfo?, viewId: String): AccessibilityNodeInfo? {
         if (rootNode == null) return null
         val fullViewId = "$UBER_PACKAGE:id/$viewId"
         return try {
-            rootNode.findAccessibilityNodeInfosByViewId(fullViewId).firstOrNull()
+            val node = rootNode.findAccessibilityNodeInfosByViewId(fullViewId).firstOrNull()
+            if (viewId in TRACKED_VIEW_IDS) {
+                RemoteLogger.logViewIdHealth(viewId, node != null)
+            }
+            node
         } catch (e: Exception) {
             Log.e(TAG, "findNodeByViewId error: ${e.message}")
+            if (viewId in TRACKED_VIEW_IDS) {
+                RemoteLogger.logViewIdHealth(viewId, false)
+            }
             null
         }
     }

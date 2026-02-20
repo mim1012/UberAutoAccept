@@ -7,6 +7,16 @@
     android:gravity="center">
 
     <TextView
+        android:id="@+id/license_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="인증 확인 중..."
+        android:textSize="12sp"
+        android:textAlignment="center"
+        android:textColor="#888888"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
         android:id="@+id/status_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -21,6 +31,15 @@
         android:layout_height="wrap_content"
         android:text="서비스 활성화"
         android:textSize="16sp"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/start_stop_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="시작"
+        android:textSize="16sp"
+        android:backgroundTint="#4CAF50"
         android:layout_marginBottom="16dp" />
 
     <Button
