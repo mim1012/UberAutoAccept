@@ -195,7 +195,7 @@ object RemoteLogger {
                 "filter_mode" to filterMode,
                 "updated_at" to now
             )
-            SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY)
+            SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY, onConflict = "device_id")
         } catch (e: Exception) {
             Log.w(TAG, "Heartbeat failed: ${e.message}")
         }
@@ -210,6 +210,6 @@ object RemoteLogger {
             "current_state" to "Idle",
             "updated_at" to now
         )
-        SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY)
+        SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY, onConflict = "device_id")
     }
 }

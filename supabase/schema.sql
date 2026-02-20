@@ -17,28 +17,52 @@ create table if not exists public.licenses (
 
 -- 2. Uber Logs (오퍼 파싱/액션/라이프사이클/viewid_health 로그)
 create table if not exists public.uber_logs (
-    id uuid default gen_random_uuid() primary key,
+    id bigserial primary key,
     device_id text not null,
     log_type text not null,         -- 'parse', 'action', 'lifecycle', 'viewid_health'
-    logged_at timestamptz default now(),
-    data jsonb
+    timestamp timestamptz not null default now(),
+    data jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
 );
 
--- 3. Uber Users (기기 상태 heartbeat, device_id 기준 UPSERT)
+create index if not exists idx_uber_logs_device_ts
+    on public.uber_logs using btree (device_id, timestamp desc);
+create index if not exists idx_uber_logs_type_ts
+    on public.uber_logs using btree (log_type, timestamp desc);
+create index if not exists idx_uber_logs_device_type
+    on public.uber_logs using btree (device_id, log_type, timestamp desc);
+
+-- 3. Uber Users (기기 상태 heartbeat + 라이센스 통합, device_id UNIQUE 기준 UPSERT)
 create table if not exists public.uber_users (
-    device_id text primary key,
-    phone_number text,
-    service_connected boolean default false,
-    current_state text,
-    last_heartbeat_at timestamptz,
-    uptime_seconds bigint,
+    id bigserial primary key,
+    device_id text unique,
     device_name text,
-    os_version text,
     app_version text,
-    filter_mode text,
-    updated_at timestamptz default now(),
-    created_at timestamptz default now()
+    os_version text,
+    service_connected boolean not null default false,
+    current_state text default 'Idle',
+    last_heartbeat_at timestamptz,
+    uptime_seconds bigint default 0,
+    filter_mode text default 'BOTH',
+    phone_number text,
+    is_active boolean not null default true,
+    user_type text default 'basic',
+    expires_at timestamptz,
+    memo text,
+    type text default 'trial' check (type in ('trial', 'premium')),
+    status text default 'active' check (status in ('active', 'blocked')),
+    registered_at timestamptz default now(),
+    last_auth timestamptz,
+    total_auths integer default 0,
+    stats jsonb default '{"regions":[],"last_active":null,"total_calls":0,"avg_distance":0,"accepted_calls":0}'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
 );
+
+create index if not exists idx_uber_users_device_id
+    on public.uber_users using btree (device_id);
+create index if not exists idx_uber_users_last_heartbeat
+    on public.uber_users using btree (last_heartbeat_at desc);
 
 -- =============================================================
 -- check_license RPC 함수 (anon 호출 가능, security definer)

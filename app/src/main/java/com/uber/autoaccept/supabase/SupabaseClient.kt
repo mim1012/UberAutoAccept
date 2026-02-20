@@ -131,10 +131,11 @@ object SupabaseClient {
         }
     }
 
-    /** Supabase PostgREST UPSERT (device_id 기준 충돌 시 병합) */
-    suspend fun restUpsert(table: String, body: Any, token: String) {
+    /** Supabase PostgREST UPSERT (onConflict 컬럼 기준 충돌 시 병합) */
+    suspend fun restUpsert(table: String, body: Any, token: String, onConflict: String? = null) {
         withContext(Dispatchers.IO) {
-            val url = URL("${SupabaseConfig.SUPABASE_URL}/rest/v1/$table")
+            val query = if (onConflict != null) "?on_conflict=$onConflict" else ""
+            val url = URL("${SupabaseConfig.SUPABASE_URL}/rest/v1/$table$query")
             val conn = url.openConnection() as HttpURLConnection
             try {
                 conn.requestMethod = "POST"
