@@ -136,6 +136,31 @@ object RemoteLogger {
         ))
     }
 
+    fun logAccessibilityEvent(packageName: String, eventType: Int, serviceActive: Boolean) {
+        enqueue(LogEntry(
+            type = LogType.DEBUG,
+            data = mapOf(
+                "event_type" to "accessibility_event",
+                "package_name" to packageName,
+                "event_code" to eventType,
+                "service_active" to serviceActive,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
+    fun logDiagnostic(reason: String, details: Map<String, Any?> = emptyMap()) {
+        enqueue(LogEntry(
+            type = LogType.DEBUG,
+            data = mapOf(
+                "event_type" to "diagnostic",
+                "reason" to reason,
+                "details" to details,
+                "timestamp" to System.currentTimeMillis()
+            ) + details
+        ))
+    }
+
     fun flushNow() {
         if (!enabled) return
         scope?.launch { flush() }

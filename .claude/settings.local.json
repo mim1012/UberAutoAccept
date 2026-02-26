@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_oh-my-claudecode_t__notepad_read",
+      "mcp__plugin_oh-my-claudecode_t__project_memory_read",
+      "mcp__plugin_oh-my-claudecode_t__python_repl",
+      "mcp__plugin_oh-my-claudecode_t__lsp_diagnostics_directory"
+    ]
+  }
+}

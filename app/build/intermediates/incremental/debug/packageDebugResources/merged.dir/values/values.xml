@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Uber 드라이버 앱의 콜을 자동으로 수락합니다. 설정한 조건(도착지, 거리)에 맞는 콜만 자동으로 수락됩니다.</string>
+    <string name="app_name">Uber Auto Accept</string>
+    <style name="Theme.UberAutoAccept" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">#000000</item>
+        <item name="colorPrimaryVariant">#000000</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#03DAC5</item>
+        <item name="colorSecondaryVariant">#018786</item>
+        <item name="colorOnSecondary">#000000</item>
+    </style>
+</resources>

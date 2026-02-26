@@ -1,0 +1,137 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1772134202929,
+  "projectRoot": "D:\\Project\\UberAutoAccept",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Java/Kotlin",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "build.gradle"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "gradle",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "app"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "app": {
+      "path": "app",
+      "purpose": "Application code",
+      "fileCount": 1,
+      "lastAccessed": 1772134202745,
+      "keyFiles": [
+        "build.gradle"
+      ]
+    },
+    "gradle": {
+      "path": "gradle",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1772134202746,
+      "keyFiles": []
+    },
+    "supabase": {
+      "path": "supabase",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772134202748,
+      "keyFiles": [
+        "schema.sql"
+      ]
+    },
+    "app\\build": {
+      "path": "app\\build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1772134202749,
+      "keyFiles": []
+    },
+    "app\\src": {
+      "path": "app\\src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1772134202750,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\service\\UberAccessibilityService.kt",
+      "accessCount": 7,
+      "lastAccessed": 1772136046047,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\logging\\RemoteLogger.kt",
+      "accessCount": 5,
+      "lastAccessed": 1772136528345,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\logging\\LogModels.kt",
+      "accessCount": 3,
+      "lastAccessed": 1772136524705,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\engine\\FilterEngine.kt",
+      "accessCount": 1,
+      "lastAccessed": 1772134723762,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\model\\Models.kt",
+      "accessCount": 1,
+      "lastAccessed": 1772134727293,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\AndroidManifest.xml",
+      "accessCount": 1,
+      "lastAccessed": 1772135437349,
+      "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\res\\xml\\accessibility_service_config.xml",
+      "accessCount": 1,
+      "lastAccessed": 1772135440315,
+      "type": "file"
+    },
+    {
+      "path": "gradle\\wrapper\\gradle-wrapper.properties",
+      "accessCount": 1,
+      "lastAccessed": 1772136801220,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

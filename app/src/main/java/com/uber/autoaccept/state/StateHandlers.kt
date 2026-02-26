@@ -92,11 +92,15 @@ class ReadyToAcceptHandler(private val config: AppConfig) : BaseStateHandler() {
 class AcceptingHandler : BaseStateHandler() {
     companion object {
         private val ACCEPT_BUTTON_VIEW_IDS = listOf(
+            "uda_details_accept_button",
             "upfront_offer_configurable_details_accept_button",
             "upfront_offer_configurable_details_auditable_accept_button"
         )
-        private val ACCEPT_BUTTON_TEXTS = listOf("수락", "확인", "Accept", "ACCEPT")
+        private val ACCEPT_BUTTON_TEXTS = listOf("콜 수락", "수락", "확인", "Accept", "ACCEPT")
     }
+
+    /** 서비스에서 클릭 직전에 주입 — 모든 윈도우 루트 */
+    var allWindowRoots: List<AccessibilityNodeInfo> = emptyList()
 
     override fun canHandle(state: AppState): Boolean = state is AppState.Accepting
 
@@ -105,7 +109,7 @@ class AcceptingHandler : BaseStateHandler() {
             return StateEvent.ErrorOccurred("Invalid state")
         }
 
-        Log.d(TAG, "수락 버튼 클릭 시도...")
+        Log.d(TAG, "수락 버튼 클릭 시도... (윈도우 수: ${allWindowRoots.size})")
 
         // 1차: 파싱 시점에 저장된 노드 사용
         val storedButton = state.offer.acceptButtonNode
@@ -118,37 +122,46 @@ class AcceptingHandler : BaseStateHandler() {
             Log.w(TAG, "저장된 노드 클릭 실패, fallback 시도...")
         }
 
-        if (!rootNode.isValid()) {
-            Log.e(TAG, "❌ rootNode 무효 - fallback 불가")
+        // 탐색 대상: 모든 윈도우 루트 (없으면 rootNode 단독)
+        val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
+
+        if (searchRoots.isEmpty()) {
+            Log.e(TAG, "❌ 탐색 가능한 윈도우 없음")
             return StateEvent.ErrorOccurred("수락 버튼 없음")
         }
 
-        // 2차: rootNode에서 ViewId로 재탐색
-        for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
-            val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(rootNode, viewId)
-            if (btn != null && btn.isClickable) {
-                if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    Log.i(TAG, "✅ 수락 버튼 클릭 성공 (2차: ViewId fallback: $viewId)")
-                    RemoteLogger.logActionResult("accept", true, "2차_ViewId($viewId)")
-                    return StateEvent.AcceptSuccess("2차_ViewId($viewId)")
+        // 2차: 모든 윈도우에서 ViewId로 탐색 — isClickable 무관하게 performAction 시도
+        for (root in searchRoots) {
+            for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
+                val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
+                if (btn != null) {
+                    if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (2차: ViewId: $viewId)")
+                        RemoteLogger.logActionResult("accept", true, "2차_ViewId($viewId)")
+                        return StateEvent.AcceptSuccess("2차_ViewId($viewId)")
+                    }
                 }
             }
         }
 
-        // 3차: rootNode에서 텍스트로 재탐색
-        for (text in ACCEPT_BUTTON_TEXTS) {
-            val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(rootNode, text)
-            if (btn != null && btn.isClickable) {
-                if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    Log.i(TAG, "✅ 수락 버튼 클릭 성공 (3차: 텍스트 fallback: $text)")
-                    RemoteLogger.logActionResult("accept", true, "3차_텍스트($text)")
-                    return StateEvent.AcceptSuccess("3차_텍스트($text)")
+        // 3차: 모든 윈도우에서 텍스트로 탐색
+        // findClickableNode() 실패 시 원본 노드로도 performAction 시도
+        for (root in searchRoots) {
+            for (text in ACCEPT_BUTTON_TEXTS) {
+                val node = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, text)
+                val btn = com.uber.autoaccept.utils.AccessibilityHelper.findClickableNode(node) ?: node
+                if (btn != null) {
+                    if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (3차: 텍스트: $text)")
+                        RemoteLogger.logActionResult("accept", true, "3차_텍스트($text)")
+                        return StateEvent.AcceptSuccess("3차_텍스트($text)")
+                    }
                 }
             }
         }
 
-        Log.e(TAG, "❌ 모든 fallback 실패")
-        RemoteLogger.logActionResult("accept", false, "1차/2차/3차 모두 실패")
+        Log.e(TAG, "❌ 모든 fallback 실패 (탐색 윈도우: ${searchRoots.size})")
+        RemoteLogger.logActionResult("accept", false, "1차/2차/3차 모두 실패 (윈도우:${searchRoots.size})")
         return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차/2차/3차 모두 실패)")
     }
 }
@@ -186,7 +199,6 @@ class RejectedHandler : BaseStateHandler() {
             return null
         }
         
-        RemoteLogger.logActionResult("reject", true, state.reason)
         Log.w(TAG, "콜 거부됨: ${state.reason}")
 
         // 1초 후 온라인 상태로 복귀

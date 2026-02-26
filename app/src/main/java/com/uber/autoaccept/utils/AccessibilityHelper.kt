@@ -11,12 +11,16 @@ object AccessibilityHelper {
 
     // Key ViewIds to track health for
     private val TRACKED_VIEW_IDS = setOf(
+        // 전체 화면 상세 뷰 (100% 확인)
         "uda_details_pickup_address_text_view",
         "uda_details_dropoff_address_text_view",
         "uda_details_distance_text_view",
         "uda_details_duration_text_view",
-        "upfront_offer_configurable_details_accept_button",
-        "ub__upfront_offer_map_label"
+        "uda_details_accept_button",
+        "ub__upfront_offer_map_label",
+        // 카드 뷰 (70% 추정)
+        "pick_up_address",
+        "drop_off_address"
     )
 
     fun findNodeByViewId(rootNode: AccessibilityNodeInfo?, viewId: String): AccessibilityNodeInfo? {
@@ -81,6 +85,18 @@ object AccessibilityHelper {
         return Pair(rect.centerX(), rect.centerY())
     }
     
+    /** 주어진 노드가 클릭 불가능하면 클릭 가능한 부모 노드를 찾아 반환 */
+    fun findClickableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isClickable) return node
+        var parent = node.parent
+        while (parent != null) {
+            if (parent.isClickable) return parent
+            parent = parent.parent
+        }
+        return null
+    }
+
     fun isNodeValid(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         return try {

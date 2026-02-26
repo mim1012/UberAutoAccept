@@ -1,0 +1,30 @@
+[
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/layout_floating_widget.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/layout/floating_widget.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/xml_accessibility_service_config.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/xml/accessibility_service_config.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/drawable_floating_bg.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/drawable/floating_bg.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/layout_activity_login.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_login.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/layout_activity_main.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/layout_activity_settings.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_settings.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-merged_res-34:/drawable_ic_launcher.xml.flat",
+        "source": "com.uber.autoaccept.app-main-36:/drawable/ic_launcher.xml"
+    }
+]

@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_login.xml",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_login.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/floating_widget.xml",
+        "source": "com.uber.autoaccept.app-main-36:/layout/floating_widget.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_settings.xml",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_settings.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_main.xml",
+        "source": "com.uber.autoaccept.app-main-36:/layout/activity_main.xml"
+    }
+]

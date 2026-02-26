@@ -36,6 +36,7 @@ class UberAccessibilityService : AccessibilityService() {
     private lateinit var config: AppConfig
 
     private val stateHandlers = mutableListOf<IStateHandler>()
+    private var offerDetectionJob: Job? = null
 
     private val configReloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -73,18 +74,28 @@ class UberAccessibilityService : AccessibilityService() {
         // 상태 관찰 시작
         observeState()
 
+        // 서비스 연결 시 Uber 앱이 이미 열려있으면 즉시 Online으로 전환
+        val rootNode = rootInActiveWindow
+        if (rootNode?.packageName == UBER_PACKAGE) {
+            Log.i(TAG, "서비스 연결 시 Uber 앱 이미 열려있음 → Online 전환")
+            stateMachine.handleEvent(StateEvent.UberAppOpened)
+        }
+
         Log.i(TAG, "초기화 완료. 모드: ${config.filterSettings.mode}")
     }
     
     /**
      * 상태 핸들러 등록
      */
+    private lateinit var acceptingHandler: AcceptingHandler
+
     private fun registerStateHandlers() {
+        acceptingHandler = AcceptingHandler()
         stateHandlers.clear()
         stateHandlers.add(OfferDetectedHandler(parser))
         stateHandlers.add(OfferAnalyzingHandler(filterEngine))
         stateHandlers.add(ReadyToAcceptHandler(config))
-        stateHandlers.add(AcceptingHandler())
+        stateHandlers.add(acceptingHandler)
         stateHandlers.add(AcceptedHandler())
         stateHandlers.add(RejectedHandler())
         stateHandlers.add(ErrorHandler())
@@ -104,8 +115,20 @@ class UberAccessibilityService : AccessibilityService() {
                 
                 if (handler != null) {
                     try {
-                        val rootNode = rootInActiveWindow
-                        val event = handler.handle(state, rootNode)
+                        val rootNode = if (state is AppState.OfferDetected) {
+                            // 항상 findOfferWindow()로 재탐색:
+                            // stored(rawNode).refresh()는 화면 전환 후 운행 리스트 내용을 반환할 수 있음
+                            // null 반환 시 OfferDetectedHandler → ErrorOccurred → Reset
+                            findOfferWindow()
+                        } else {
+                            rootInActiveWindow
+                        }
+                        // Accepting 상태: 클릭 직전에 모든 윈도우 루트 주입
+                if (handler is AcceptingHandler) {
+                    handler.allWindowRoots = windows?.mapNotNull { it.root } ?: emptyList()
+                    Log.d(TAG, "AcceptingHandler 윈도우 주입: ${handler.allWindowRoots.size}개")
+                }
+                val event = handler.handle(state, rootNode)
                         
                         if (event != null) {
                             stateMachine.handleEvent(event)
@@ -120,9 +143,22 @@ class UberAccessibilityService : AccessibilityService() {
     }
     
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.packageName != UBER_PACKAGE) return
-        if (!ServiceState.isActive()) return
-        
+        // 진단용 로그: 모든 접근성 이벤트 기록
+        Log.d(TAG, "onAccessibilityEvent: pkg=${event.packageName}, type=${event.eventType}, serviceActive=${ServiceState.isActive()}")
+        RemoteLogger.logAccessibilityEvent(event.packageName ?: "null", event.eventType, ServiceState.isActive())
+
+        if (event.packageName != UBER_PACKAGE) {
+            Log.d(TAG, "Ignored: wrong package (${event.packageName} != $UBER_PACKAGE)")
+            RemoteLogger.logDiagnostic("Wrong package", mapOf("expected" to UBER_PACKAGE, "actual" to (event.packageName ?: "null")))
+            return
+        }
+        if (!ServiceState.isActive()) {
+            Log.d(TAG, "Ignored: service not active")
+            RemoteLogger.logDiagnostic("Service not active")
+            return
+        }
+
+        Log.i(TAG, "✓ Processing accessibility event: type=${event.eventType}")
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 handleWindowStateChanged(event)
@@ -148,47 +184,66 @@ class UberAccessibilityService : AccessibilityService() {
      * 윈도우 콘텐츠 변경 처리
      */
     private fun handleWindowContentChanged(event: AccessibilityEvent) {
-        val currentState = stateMachine.getCurrentState()
-        
-        // Online 상태에서만 새로운 오퍼 감지
-        if (currentState is AppState.Online || currentState is AppState.Rejected) {
-            val rootNode = rootInActiveWindow ?: return
-            
-            // 오퍼 화면 감지 (ViewId 기반)
-            val offerDetected = detectOffer(rootNode)
-            
-            if (offerDetected) {
-                Log.i(TAG, "🔔 새로운 오퍼 감지!")
-                stateMachine.handleEvent(StateEvent.NewOfferAppeared(rootNode))
+        var currentState = stateMachine.getCurrentState()
+
+        // Idle 상태에서 컨텐츠 변경 = Uber 앱이 이미 열려있음 → Online 전환
+        if (currentState is AppState.Idle) {
+            stateMachine.handleEvent(StateEvent.UberAppOpened)
+            currentState = stateMachine.getCurrentState()
+        }
+
+        // Online 상태에서만 새로운 오퍼 감지 (Rejected 제외: 거절 처리 중 중복 감지 방지)
+        if (currentState is AppState.Online) {
+            // debounce: 화면 점진적 로딩 중 과다 이벤트 필터링
+            offerDetectionJob?.cancel()
+            offerDetectionJob = serviceScope.launch {
+                delay(400)
+                if (stateMachine.getCurrentState() is AppState.Online) {
+                    val offerRoot = findOfferWindow()
+                    if (offerRoot != null) {
+                        Log.i(TAG, "🔔 새로운 오퍼 감지!")
+                        stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                    }
+                }
             }
         }
     }
     
     /**
-     * 오퍼 화면 감지
+     * 모든 윈도우에서 오퍼 창 탐색
+     * - 비오퍼 화면(운행 리스트, 새로운 콜 배너 등) 제외
+     * - 오퍼 화면 로딩 완료 확인 후 반환 ("대한민국" 주소 2개 이상)
      */
-    private fun detectOffer(rootNode: android.view.accessibility.AccessibilityNodeInfo): Boolean {
-        // 전략 1: ViewId 기반 감지
-        val pickupNode = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(
-            rootNode, 
-            "uda_details_pickup_address_text_view"
-        )
-        val dropoffNode = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(
-            rootNode, 
-            "uda_details_dropoff_address_text_view"
-        )
-        
-        RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
-        RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
+    private fun findOfferWindow(): android.view.accessibility.AccessibilityNodeInfo? {
+        val helper = com.uber.autoaccept.utils.AccessibilityHelper
+        val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
+            ?: listOfNotNull(rootInActiveWindow)
 
-        if (pickupNode != null && dropoffNode != null) {
-            return true
+        for (root in roots) {
+            // 비오퍼 화면 제외
+            if (helper.findNodeByText(root, "운행 리스트") != null) continue
+            if (helper.findNodeByText(root, "새로운 콜") != null) continue
+            if (helper.findNodeByText(root, "지금은 요청이 없습니다") != null) continue
+            if (helper.findNodeByText(root, "요청 1건 매칭") != null) continue
+
+            // 1순위: "콜 수락" 텍스트 (오퍼 화면 확실)
+            if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) return root
+
+            // 2순위: "대한민국" 주소 2개 이상 (오퍼 화면 로딩 완료)
+            try {
+                val addrNodes = root.findAccessibilityNodeInfosByText("대한민국")
+                    ?.filter { !it.text.isNullOrBlank() } ?: emptyList()
+                if (addrNodes.size >= 2) return root
+            } catch (_: Exception) {}
+
+            // 3순위: ViewId 기반 감지 (health 로깅 겸용)
+            val pickupNode = helper.findNodeByViewId(root, "uda_details_pickup_address_text_view")
+            val dropoffNode = helper.findNodeByViewId(root, "uda_details_dropoff_address_text_view")
+            RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
+            RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
+            if (pickupNode != null && dropoffNode != null) return root
         }
-
-        // 전략 2: 텍스트 기반 감지 (Fallback)
-        val allText = com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(rootNode)
-        return allText.contains("Pickup", ignoreCase = true) && 
-               allText.contains("Dropoff", ignoreCase = true)
+        return null
     }
     
     /**

@@ -160,10 +160,10 @@ object SupabaseClient {
         }
     }
 
-    /** Supabase 연결 테스트 (licenses 테이블 접근 확인) */
+    /** Supabase 연결 테스트 (uber_users 테이블 접근 확인) */
     suspend fun testConnection(token: String): Boolean {
         return try {
-            restGet("licenses", "select=id&limit=1", token)
+            restGet("uber_users", "select=device_id&limit=1", token)
             true
         } catch (e: Exception) {
             Log.w(TAG, "Connection test failed: ${e.message}")
