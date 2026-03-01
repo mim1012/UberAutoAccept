@@ -51,6 +51,9 @@ class UberAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         Log.i(TAG, "서비스 연결됨")
 
+        // 서비스 활성 상태로 설정 (중요: 접근성 이벤트를 처리하기 위함)
+        ServiceState.start()
+
         // 설정 로드
         config = loadConfig()
 
