@@ -25,8 +25,10 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
         val offer = parser.parseOfferDetails(rootNode)
         
         return if (offer != null) {
+            Log.i("UAA", "[PARSE] ✅ 파싱 성공 | 출발: ${offer.pickupLocation} | 도착: ${offer.dropoffLocation} | 고객거리: ${offer.customerDistance}km | 버튼발견: ${offer.acceptButtonNode != null}")
             StateEvent.OfferParsed(offer)
         } else {
+            Log.e("UAA", "[PARSE] ❌ 파싱 실패 — ViewId/텍스트 모두 실패 (Uber 앱 버전 변경 가능성)")
             StateEvent.ErrorOccurred("오퍼 파싱 실패")
         }
     }
@@ -50,9 +52,11 @@ class OfferAnalyzingHandler(private val filterEngine: FilterEngine) : BaseStateH
         
         return when (result) {
             is FilterResult.Accepted -> {
+                Log.i("UAA", "[FILTER] ✅ 수락 조건 충족 → ${result.reasons.joinToString()}")
                 StateEvent.OfferFiltered(accepted = true, reason = result.reasons.joinToString())
             }
             is FilterResult.Rejected -> {
+                Log.w("UAA", "[FILTER] ⛔ 수락 조건 불충족 → ${result.reasons.joinToString()}")
                 StateEvent.OfferFiltered(accepted = false, reason = result.reasons.joinToString())
             }
         }
@@ -101,6 +105,10 @@ class AcceptingHandler : BaseStateHandler() {
 
     /** 서비스에서 클릭 직전에 주입 — 모든 윈도우 루트 */
     var allWindowRoots: List<AccessibilityNodeInfo> = emptyList()
+    var openCVButtonRect: android.graphics.Rect? = null
+    var serviceRef: android.accessibilityservice.AccessibilityService? = null
+    /** 사용자가 Floating Target으로 지정한 수락 버튼 좌표 */
+    var targetClickPoint: android.graphics.PointF? = null
 
     override fun canHandle(state: AppState): Boolean = state is AppState.Accepting
 
@@ -109,60 +117,38 @@ class AcceptingHandler : BaseStateHandler() {
             return StateEvent.ErrorOccurred("Invalid state")
         }
 
-        Log.d(TAG, "수락 버튼 클릭 시도... (윈도우 수: ${allWindowRoots.size})")
+        val target = targetClickPoint
+        val svc = serviceRef
 
-        // 1차: 파싱 시점에 저장된 노드 사용
-        val storedButton = state.offer.acceptButtonNode
-        if (storedButton != null && com.uber.autoaccept.utils.AccessibilityHelper.isNodeValid(storedButton) && storedButton.isClickable) {
-            if (storedButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                Log.i(TAG, "✅ 수락 버튼 클릭 성공 (1차: 저장된 노드)")
-                RemoteLogger.logActionResult("accept", true, "1차_저장노드")
-                return StateEvent.AcceptSuccess("1차_저장노드")
-            }
-            Log.w(TAG, "저장된 노드 클릭 실패, fallback 시도...")
+        if (target == null || svc == null) {
+            Log.e("UAA", "[ACCEPT] ❌ 타겟 좌표 없음 — ⊕ 먼저 배치하세요")
+            RemoteLogger.logActionResult("accept", false, "타겟좌표 없음")
+            return StateEvent.ErrorOccurred("타겟 좌표 미설정")
         }
 
-        // 탐색 대상: 모든 윈도우 루트 (없으면 rootNode 단독)
-        val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
+        com.uber.autoaccept.service.FloatingWidgetService.disableTargetTouch()
 
-        if (searchRoots.isEmpty()) {
-            Log.e(TAG, "❌ 탐색 가능한 윈도우 없음")
-            return StateEvent.ErrorOccurred("수락 버튼 없음")
-        }
-
-        // 2차: 모든 윈도우에서 ViewId로 탐색 — isClickable 무관하게 performAction 시도
-        for (root in searchRoots) {
-            for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
-                val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
-                if (btn != null) {
-                    if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (2차: ViewId: $viewId)")
-                        RemoteLogger.logActionResult("accept", true, "2차_ViewId($viewId)")
-                        return StateEvent.AcceptSuccess("2차_ViewId($viewId)")
+        repeat(5) { i ->
+            val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
+            val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
+            svc.dispatchGesture(
+                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                        Log.i("UAA", "[ACCEPT] 탭 ${i + 1}/5 ✅ completed (${target.x},${target.y})")
                     }
-                }
-            }
-        }
-
-        // 3차: 모든 윈도우에서 텍스트로 탐색
-        // findClickableNode() 실패 시 원본 노드로도 performAction 시도
-        for (root in searchRoots) {
-            for (text in ACCEPT_BUTTON_TEXTS) {
-                val node = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, text)
-                val btn = com.uber.autoaccept.utils.AccessibilityHelper.findClickableNode(node) ?: node
-                if (btn != null) {
-                    if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (3차: 텍스트: $text)")
-                        RemoteLogger.logActionResult("accept", true, "3차_텍스트($text)")
-                        return StateEvent.AcceptSuccess("3차_텍스트($text)")
+                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                        Log.w("UAA", "[ACCEPT] 탭 ${i + 1}/5 ❌ cancelled (${target.x},${target.y})")
                     }
-                }
-            }
+                }, null
+            )
+            delay(150)
         }
 
-        Log.e(TAG, "❌ 모든 fallback 실패 (탐색 윈도우: ${searchRoots.size})")
-        RemoteLogger.logActionResult("accept", false, "1차/2차/3차 모두 실패 (윈도우:${searchRoots.size})")
-        return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차/2차/3차 모두 실패)")
+        com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
+        Log.i("UAA", "[ACCEPT] ✅ 제스처 완료 (${target.x},${target.y})")
+        RemoteLogger.logActionResult("accept", true, "dispatchGesture(${target.x},${target.y})")
+        return StateEvent.AcceptSuccess("dispatchGesture")
     }
 }
 
@@ -200,6 +186,7 @@ class RejectedHandler : BaseStateHandler() {
         }
         
         Log.w(TAG, "콜 거부됨: ${state.reason}")
+        Log.w("UAA", "[FILTER] ⛔ 콜 거부: ${state.reason}")
 
         // 1초 후 온라인 상태로 복귀
         delay(1000)
@@ -221,7 +208,8 @@ class ErrorHandler : BaseStateHandler() {
         }
         
         Log.e(TAG, "오류 발생: ${state.message}", state.exception)
-        
+        Log.e("UAA", "[ERROR] ❌ 상태 오류: ${state.message}")
+
         // 2초 후 온라인 상태로 복귀
         delay(2000)
         

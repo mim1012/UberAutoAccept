@@ -24,16 +24,37 @@ class FloatingWidgetService : Service() {
         private const val TAG = "FloatingWidget"
         private const val CHANNEL_ID = "floating_widget_channel"
         private const val NOTIFICATION_ID = 1001
+
+        var instance: FloatingWidgetService? = null
+
+        /** 제스처 클릭 전 호출 — 오버레이가 탭을 가로채지 않도록 */
+        fun disableTargetTouch() { instance?.setTargetTouchable(false) }
+        /** 제스처 완료 후 호출 — 드래그 가능 상태 복원 */
+        fun enableTargetTouch() { instance?.setTargetTouchable(true) }
+    }
+
+    fun setTargetTouchable(touchable: Boolean) {
+        val view = targetView ?: return
+        val wm = windowManager ?: return
+        val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+        if (touchable) {
+            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+        try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
     }
 
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
+    private var targetView: View? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -73,6 +94,7 @@ class FloatingWidgetService : Service() {
         val startBtn = floatingView!!.findViewById<Button>(R.id.floating_start_btn)
         val stopBtn = floatingView!!.findViewById<Button>(R.id.floating_stop_btn)
         val closeBtn = floatingView!!.findViewById<Button>(R.id.floating_close_btn)
+        val testBtn = floatingView!!.findViewById<Button>(R.id.floating_test_btn)
 
         startBtn.setOnClickListener {
             ServiceState.start()
@@ -89,6 +111,8 @@ class FloatingWidgetService : Service() {
             Log.i(TAG, "Closed by user")
             stopSelf()
         }
+
+        testBtn.setOnClickListener { sendTestTap() }
 
         // Observe state changes to update UI
         scope.launch {
@@ -111,6 +135,82 @@ class FloatingWidgetService : Service() {
         setupDrag(floatingView!!, params)
 
         windowManager?.addView(floatingView, params)
+        setupTargetOverlay()
+    }
+
+    private fun setupTargetOverlay() {
+        val wm = windowManager ?: return
+        val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
+
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        val halfPx = (40 * resources.displayMetrics.density).toInt()
+        // 자동클릭커 방식: lp_x/y 직접 저장/로드
+        val savedX = prefs.getFloat("target_lp_x", (screenWidth / 2 - halfPx).toFloat()).toInt()
+        val savedY = prefs.getFloat("target_lp_y", (screenHeight / 2 - halfPx).toFloat()).toInt()
+
+        val view = LayoutInflater.from(this).inflate(R.layout.floating_target, null)
+        targetView = view
+
+        val targetParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = savedX
+            y = savedY
+        }
+
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+
+        view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = targetParams.x
+                    initialY = targetParams.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    targetParams.x = initialX + (event.rawX - initialTouchX).toInt()
+                    targetParams.y = initialY + (event.rawY - initialTouchY).toInt()
+                    wm.updateViewLayout(view, targetParams)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    // 자동클릭커 방식: LayoutParams.x/y 직접 저장
+                    prefs.edit()
+                        .putFloat("target_lp_x", targetParams.x.toFloat())
+                        .putFloat("target_lp_y", targetParams.y.toFloat())
+                        .apply()
+                    Log.i(TAG, "타겟 lp 저장: (${targetParams.x}, ${targetParams.y})")
+                    reloadAccessibilityConfig()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Observe active state to adjust visibility
+        scope.launch {
+            ServiceState.active.collect { active ->
+                view.alpha = if (active) 1.0f else 0.3f
+            }
+        }
+
+        wm.addView(view, targetParams)
     }
 
     private fun setupDrag(view: View, params: WindowManager.LayoutParams) {
@@ -156,6 +256,13 @@ class FloatingWidgetService : Service() {
         sendBroadcast(intent)
     }
 
+    private fun sendTestTap() {
+        val intent = Intent("com.uber.autoaccept.TEST_TAP")
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
+        Log.i(TAG, "TEST_TAP 브로드캐스트 전송")
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -194,6 +301,9 @@ class FloatingWidgetService : Service() {
         scope.cancel()
         floatingView?.let { windowManager?.removeView(it) }
         floatingView = null
+        targetView?.let { windowManager?.removeView(it) }
+        targetView = null
+        instance = null
         Log.i(TAG, "Widget destroyed")
     }
 }

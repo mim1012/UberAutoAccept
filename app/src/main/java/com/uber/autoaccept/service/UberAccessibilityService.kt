@@ -7,13 +7,17 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
 import com.uber.autoaccept.engine.StateMachine
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.state.*
+import com.uber.autoaccept.utils.OfferCardDetector
+import com.uber.autoaccept.utils.ScreenshotManager
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.*
+import org.opencv.android.OpenCVLoader
 import kotlinx.coroutines.flow.collect
 import java.util.UUID
 
@@ -38,6 +42,10 @@ class UberAccessibilityService : AccessibilityService() {
     private val stateHandlers = mutableListOf<IStateHandler>()
     private var offerDetectionJob: Job? = null
 
+    private lateinit var screenshotManager: ScreenshotManager
+    private val offerCardDetector = OfferCardDetector()
+    var openCVButtonRect: android.graphics.Rect? = null
+
     private val configReloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             Log.i(TAG, "Config reload requested")
@@ -46,10 +54,47 @@ class UberAccessibilityService : AccessibilityService() {
             registerStateHandlers()
         }
     }
+
+    private val testTapReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
+            val lpX = prefs.getFloat("target_lp_x", -1f)
+            val lpY = prefs.getFloat("target_lp_y", -1f)
+            if (lpX < 0 || lpY < 0) {
+                Log.w("UAA", "[TEST] 저장된 lp 좌표 없음 — ⊕ 먼저 배치하세요")
+                return
+            }
+            val (tx, ty) = lpToClickCoord(lpX, lpY)
+            Log.i("UAA", "[TEST] 테스트 탭 실행: lp=($lpX,$lpY) → click=($tx,$ty)")
+            FloatingWidgetService.disableTargetTouch()
+            val path = android.graphics.Path().apply { moveTo(tx, ty) }
+            val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
+            dispatchGesture(
+                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+                object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                        Log.i("UAA", "[TEST] ✅ 제스처 completed ($tx, $ty)")
+                        FloatingWidgetService.enableTargetTouch()
+                    }
+                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                        Log.w("UAA", "[TEST] ❌ 제스처 cancelled ($tx, $ty)")
+                        FloatingWidgetService.enableTargetTouch()
+                    }
+                }, null
+            )
+        }
+    }
+
+    private fun lpToClickCoord(lpX: Float, lpY: Float): Pair<Float, Float> {
+        val halfPx = resources.displayMetrics.density * 40f  // 80dp의 절반
+        return Pair(lpX + halfPx, lpY + halfPx)
+    }
     
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "서비스 연결됨")
+        Log.i("UAA", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        Log.i("UAA", "[SERVICE] ✅ 접근성 서비스 연결됨")
 
         // 서비스 활성 상태로 설정 (중요: 접근성 이벤트를 처리하기 위함)
         ServiceState.start()
@@ -65,11 +110,23 @@ class UberAccessibilityService : AccessibilityService() {
         registerReceiver(configReloadReceiver, IntentFilter("com.uber.autoaccept.RELOAD_CONFIG"),
             Context.RECEIVER_NOT_EXPORTED)
 
+        // TEST_TAP receiver 등록
+        registerReceiver(testTapReceiver, IntentFilter("com.uber.autoaccept.TEST_TAP"),
+            Context.RECEIVER_NOT_EXPORTED)
+
         // 원격 로깅 초기화 (Supabase 사용)
         RemoteLogger.initialize(this, config.deviceId, config.remoteLoggingEnabled)
         RemoteLogger.currentStateSupplier = { stateMachine.getCurrentState()::class.simpleName ?: "unknown" }
         RemoteLogger.logServiceConnected()
         RemoteLogger.flushNow()
+
+        // OpenCV 초기화
+        screenshotManager = ScreenshotManager(this)
+        if (!OpenCVLoader.initLocal()) {
+            Log.e(TAG, "OpenCV 초기화 실패")
+        } else {
+            Log.i(TAG, "OpenCV 초기화 성공")
+        }
 
         // 상태 핸들러 등록
         registerStateHandlers()
@@ -84,6 +141,7 @@ class UberAccessibilityService : AccessibilityService() {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
         }
 
+        Log.i("UAA", "[SERVICE] 초기화 완료 | 모드: ${config.filterSettings.mode} | 최대 고객 거리: ${config.filterSettings.maxCustomerDistance}km")
         Log.i(TAG, "초기화 완료. 모드: ${config.filterSettings.mode}")
     }
     
@@ -94,6 +152,13 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun registerStateHandlers() {
         acceptingHandler = AcceptingHandler()
+        val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
+        val lpX = prefs.getFloat("target_lp_x", -1f)
+        val lpY = prefs.getFloat("target_lp_y", -1f)
+        if (lpX >= 0 && lpY >= 0) {
+            val (cx, cy) = lpToClickCoord(lpX, lpY)
+            acceptingHandler.targetClickPoint = android.graphics.PointF(cx, cy)
+        }
         stateHandlers.clear()
         stateHandlers.add(OfferDetectedHandler(parser))
         stateHandlers.add(OfferAnalyzingHandler(filterEngine))
@@ -129,6 +194,8 @@ class UberAccessibilityService : AccessibilityService() {
                         // Accepting 상태: 클릭 직전에 모든 윈도우 루트 주입
                 if (handler is AcceptingHandler) {
                     handler.allWindowRoots = windows?.mapNotNull { it.root } ?: emptyList()
+                    handler.openCVButtonRect = openCVButtonRect
+                    handler.serviceRef = this@UberAccessibilityService
                     Log.d(TAG, "AcceptingHandler 윈도우 주입: ${handler.allWindowRoots.size}개")
                 }
                 val event = handler.handle(state, rootNode)
@@ -156,6 +223,7 @@ class UberAccessibilityService : AccessibilityService() {
             return
         }
         if (!ServiceState.isActive()) {
+            Log.w("UAA", "[SERVICE] ⚠️ 서비스 비활성 상태 — 이벤트 무시 (pkg=${event.packageName})")
             Log.d(TAG, "Ignored: service not active")
             RemoteLogger.logDiagnostic("Service not active")
             return
@@ -174,12 +242,33 @@ class UberAccessibilityService : AccessibilityService() {
     
     /**
      * 윈도우 상태 변경 처리
+     * STATE_CHANGED = 새 화면/오버레이 등장 → 오퍼 감지 즉시 시도
      */
     private fun handleWindowStateChanged(event: AccessibilityEvent) {
         val currentState = stateMachine.getCurrentState()
-        
+
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
+        }
+
+        // Online 상태에서 새 윈도우가 뜨면 짧은 딜레이 후 오퍼 감지 시도
+        if (currentState is AppState.Online) {
+            offerDetectionJob?.cancel()
+            offerDetectionJob = serviceScope.launch {
+                // 오퍼 카드 로딩 대기 후 재시도 (최대 3회, 200ms 간격)
+                repeat(3) { attempt ->
+                    delay(200)
+                    if (stateMachine.getCurrentState() is AppState.Online) {
+                        val offerRoot = findOfferWindow()
+                        if (offerRoot != null) {
+                            Log.i(TAG, "🔔 오퍼 감지 (STATE_CHANGED, attempt=${attempt + 1})")
+                            Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 (STATE_CHANGED attempt=${attempt + 1}) → 파싱 시작")
+                            stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                            return@launch
+                        }
+                    } else return@launch
+                }
+            }
         }
     }
     
@@ -195,29 +284,60 @@ class UberAccessibilityService : AccessibilityService() {
             currentState = stateMachine.getCurrentState()
         }
 
-        // Online 상태에서만 새로운 오퍼 감지 (Rejected 제외: 거절 처리 중 중복 감지 방지)
+        // Online 상태에서만 새로운 오퍼 감지
         if (currentState is AppState.Online) {
             // debounce: 화면 점진적 로딩 중 과다 이벤트 필터링
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                delay(400)
-                if (stateMachine.getCurrentState() is AppState.Online) {
-                    val offerRoot = findOfferWindow()
-                    if (offerRoot != null) {
-                        Log.i(TAG, "🔔 새로운 오퍼 감지!")
-                        stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
-                    }
+                delay(300)
+                if (stateMachine.getCurrentState() !is AppState.Online) return@launch
+                val offerRoot = findOfferWindow()
+                if (offerRoot != null) {
+                    Log.i(TAG, "🔔 새로운 오퍼 감지!")
+                    Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 → 파싱 시작")
+                    stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                } else {
+                    dumpWindowTexts()
                 }
             }
         }
     }
     
     /**
+     * 진단: 현재 모든 윈도우의 텍스트를 UAA_DUMP 태그로 출력
+     */
+    private fun dumpWindowTexts() {
+        val wins = windows ?: emptyList()
+        val roots = wins.mapNotNull { it.root }.ifEmpty { listOfNotNull(rootInActiveWindow) }
+        Log.d("UAA_DUMP", "=== DUMP 윈도우수:${roots.size} ===")
+        roots.forEachIndexed { wi, root ->
+            val winInfo = if (wi < wins.size) "type=${wins[wi].type} layer=${wins[wi].layer}" else "rootInActive"
+            Log.d("UAA_DUMP", "[$wi] $winInfo pkg=${root.packageName} childCnt=${root.childCount}")
+            // text + contentDescription 모두 수집
+            val sb = StringBuilder()
+            dumpNodeRecursive(root, sb, 0)
+            val out = sb.toString().take(500)
+            Log.d("UAA_DUMP", "[$wi] 텍스트: $out")
+        }
+    }
+
+    private fun dumpNodeRecursive(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
+        if (depth > 10) return
+        try {
+            node.text?.toString()?.takeIf { it.isNotBlank() }?.let { sb.append("[T]$it ") }
+            node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { sb.append("[D]$it ") }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.also { child -> dumpNodeRecursive(child, sb, depth + 1) }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
      * 모든 윈도우에서 오퍼 창 탐색
      * - 비오퍼 화면(운행 리스트, 새로운 콜 배너 등) 제외
      * - 오퍼 화면 로딩 완료 확인 후 반환 ("대한민국" 주소 2개 이상)
      */
-    private fun findOfferWindow(): android.view.accessibility.AccessibilityNodeInfo? {
+    private suspend fun findOfferWindow(): android.view.accessibility.AccessibilityNodeInfo? {
         val helper = com.uber.autoaccept.utils.AccessibilityHelper
         val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
             ?: listOfNotNull(rootInActiveWindow)
@@ -230,14 +350,22 @@ class UberAccessibilityService : AccessibilityService() {
             if (helper.findNodeByText(root, "요청 1건 매칭") != null) continue
 
             // 1순위: "콜 수락" 텍스트 (오퍼 화면 확실)
-            if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) return root
+            if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
+                Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} childCnt=${root.childCount} (콜수락 감지)")
+                return root
+            }
 
-            // 2순위: "대한민국" 주소 2개 이상 (오퍼 화면 로딩 완료)
-            try {
-                val addrNodes = root.findAccessibilityNodeInfosByText("대한민국")
-                    ?.filter { !it.text.isNullOrBlank() } ?: emptyList()
-                if (addrNodes.size >= 2) return root
-            } catch (_: Exception) {}
+            // 2순위: 광역 행정구역 키워드 (파서와 동일한 전략)
+            val cityKeywords = listOf("특별시", "광역시", "특별자치시")
+            var cityFound = false
+            for (keyword in cityKeywords) {
+                try {
+                    val addrNodes = root.findAccessibilityNodeInfosByText(keyword)
+                        ?.filter { !it.text.isNullOrBlank() } ?: emptyList()
+                    if (addrNodes.isNotEmpty()) { cityFound = true; break }
+                } catch (_: Exception) {}
+            }
+            if (cityFound) return root
 
             // 3순위: ViewId 기반 감지 (health 로깅 겸용)
             val pickupNode = helper.findNodeByViewId(root, "uda_details_pickup_address_text_view")
@@ -245,6 +373,23 @@ class UberAccessibilityService : AccessibilityService() {
             RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
             RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
             if (pickupNode != null && dropoffNode != null) return root
+
+            // OpenCV fallback: 스크린샷으로 오퍼 카드 및 버튼 시각적 감지
+            val screenshot = screenshotManager.capture()
+            if (screenshot != null) {
+                val result = offerCardDetector.detect(screenshot)
+                if (result != null) {
+                    openCVButtonRect = result.buttonRect
+                    Log.i(TAG, "🔍 OpenCV 오퍼 감지 성공 — 버튼 좌표: (${result.buttonCenterX}, ${result.buttonCenterY})")
+                    Log.i("UAA", "[OPENCV] ✅ 시각적 오퍼 감지 성공 | 버튼: (${result.buttonCenterX.toInt()}, ${result.buttonCenterY.toInt()})")
+                    RemoteLogger.logOpenCVDetection(true, result.buttonCenterX, result.buttonCenterY)
+                    return root
+                } else {
+                    RemoteLogger.logOpenCVDetection(false, reason = "card_not_detected")
+                }
+            } else {
+                RemoteLogger.logOpenCVDetection(false, reason = "screenshot_failed")
+            }
         }
         return null
     }
@@ -255,15 +400,10 @@ class UberAccessibilityService : AccessibilityService() {
     private fun loadConfig(): AppConfig {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
 
-        val modeString = prefs.getString("filter_mode", FilterMode.BOTH.name) ?: FilterMode.BOTH.name
-        val mode = try {
-            FilterMode.valueOf(modeString)
-        } catch (e: Exception) {
-            FilterMode.BOTH
-        }
-
-        val seoulMaxDist = prefs.getFloat("seoul_pickup_max_distance", 3.0f).toDouble()
-        val airportMaxDist = prefs.getFloat("airport_pickup_max_distance", 7.0f).toDouble()
+        val enabled = prefs.getString("filter_mode", "ENABLED") != "DISABLED"
+        val maxDist = prefs.getFloat("max_customer_distance",
+            prefs.getFloat("airport_pickup_max_distance", 5.0f)  // 기존값 마이그레이션
+        ).toDouble()
 
         // device_id: read or generate once
         var deviceId = prefs.getString("device_id", null)
@@ -274,9 +414,8 @@ class UberAccessibilityService : AccessibilityService() {
 
         return AppConfig(
             filterSettings = FilterSettings(
-                mode = mode,
-                seoulPickupMaxDistance = seoulMaxDist,
-                airportPickupMaxDistance = airportMaxDist
+                mode = if (enabled) FilterMode.ENABLED else FilterMode.DISABLED,
+                maxCustomerDistance = maxDist
             ),
             enableShizuku = prefs.getBoolean("enable_shizuku", true),
             enableLogging = prefs.getBoolean("enable_logging", true),
@@ -289,15 +428,18 @@ class UberAccessibilityService : AccessibilityService() {
     
     override fun onInterrupt() {
         Log.w(TAG, "서비스 중단됨")
+        Log.e("UAA", "[SERVICE] ❌ 접근성 서비스 강제 중단 (onInterrupt) — 배터리 최적화/권한 확인 필요")
         RemoteLogger.logServiceDisconnected("onInterrupt")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(configReloadReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(testTapReceiver) } catch (_: Exception) {}
         RemoteLogger.logServiceDisconnected("onDestroy")
         RemoteLogger.shutdown()
         serviceScope.cancel()
         Log.i(TAG, "서비스 종료됨")
+        Log.i("UAA", "[SERVICE] 서비스 정상 종료 (onDestroy)")
     }
 }
