@@ -94,6 +94,7 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun registerStateHandlers() {
         acceptingHandler = AcceptingHandler()
+        acceptingHandler.accessibilityService = this
         stateHandlers.clear()
         stateHandlers.add(OfferDetectedHandler(parser))
         stateHandlers.add(OfferAnalyzingHandler(filterEngine))

@@ -1,10 +1,12 @@
 package com.uber.autoaccept.state
 
+import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
+import com.uber.autoaccept.utils.GestureClicker
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.delay
 
@@ -102,6 +104,9 @@ class AcceptingHandler : BaseStateHandler() {
     /** 서비스에서 클릭 직전에 주입 — 모든 윈도우 루트 */
     var allWindowRoots: List<AccessibilityNodeInfo> = emptyList()
 
+    /** dispatchGesture 4차 fallback용. 서비스에서 주입 */
+    var accessibilityService: AccessibilityService? = null
+
     override fun canHandle(state: AppState): Boolean = state is AppState.Accepting
 
     override suspend fun handle(state: AppState, rootNode: AccessibilityNodeInfo?): StateEvent? {
@@ -160,9 +165,49 @@ class AcceptingHandler : BaseStateHandler() {
             }
         }
 
-        Log.e(TAG, "❌ 모든 fallback 실패 (탐색 윈도우: ${searchRoots.size})")
-        RemoteLogger.logActionResult("accept", false, "1차/2차/3차 모두 실패 (윈도우:${searchRoots.size})")
-        return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차/2차/3차 모두 실패)")
+        // 4차: dispatchGesture — performAction 실패 시 좌표 기반 터치 제스처
+        // Uber Driver 커스텀 뷰는 performAction(ACTION_CLICK)을 무시할 수 있음
+        // AutoClicker 방식: 노드 중심 좌표 → Path.moveTo → StrokeDescription → dispatchGesture
+        val service = accessibilityService
+        if (service != null) {
+            Log.d(TAG, "4차 dispatchGesture fallback 시도...")
+
+            // 4-a: ViewId로 찾은 노드의 좌표로 제스처 클릭
+            for (root in searchRoots) {
+                for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
+                    val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
+                    if (btn != null) {
+                        if (GestureClicker.clickNode(service, btn)) {
+                            delay(300) // 클릭 결과 반영 대기
+                            Log.i(TAG, "✅ 수락 성공 (4차: Gesture ViewId: $viewId)")
+                            RemoteLogger.logActionResult("accept", true, "4차_Gesture_ViewId($viewId)")
+                            return StateEvent.AcceptSuccess("4차_Gesture_ViewId($viewId)")
+                        }
+                    }
+                }
+            }
+
+            // 4-b: 텍스트로 찾은 노드의 좌표로 제스처 클릭
+            for (root in searchRoots) {
+                for (text in ACCEPT_BUTTON_TEXTS) {
+                    val node = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, text)
+                    if (node != null) {
+                        if (GestureClicker.clickNode(service, node)) {
+                            delay(300)
+                            Log.i(TAG, "✅ 수락 성공 (4차: Gesture 텍스트: $text)")
+                            RemoteLogger.logActionResult("accept", true, "4차_Gesture_텍스트($text)")
+                            return StateEvent.AcceptSuccess("4차_Gesture_텍스트($text)")
+                        }
+                    }
+                }
+            }
+        } else {
+            Log.w(TAG, "⚠️ AccessibilityService 미주입 — 4차 Gesture fallback 스킵")
+        }
+
+        Log.e(TAG, "❌ 모든 fallback 실패 (1차~4차, 윈도우: ${searchRoots.size})")
+        RemoteLogger.logActionResult("accept", false, "1차~4차 모두 실패 (윈도우:${searchRoots.size})")
+        return StateEvent.ErrorOccurred("수락 버튼 클릭 불가 (1차~4차 모두 실패)")
     }
 }
 
