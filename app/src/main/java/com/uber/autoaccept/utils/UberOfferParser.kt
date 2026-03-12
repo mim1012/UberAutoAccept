@@ -32,7 +32,6 @@ class UberOfferParser {
             val tripDistance = DistanceParser.parseDistance(tripDistanceText)
             val estimatedTime = DistanceParser.parseDuration(durationText)
             val customerDistance = extractCustomerDistance(rootNode)
-            val acceptButton = findAcceptButton(rootNode)
 
             Log.d(TAG, """
                 오퍼 파싱 성공 ($confidence):
@@ -50,8 +49,8 @@ class UberOfferParser {
                 tripDistance = tripDistance,
                 estimatedFare = 0,
                 estimatedTime = estimatedTime,
-                acceptButtonBounds = acceptButton?.let { AccessibilityHelper.getBounds(it) },
-                acceptButtonNode = acceptButton,
+                acceptButtonBounds = null,
+                acceptButtonNode = null,
                 parseConfidence = confidence
             )
 
@@ -77,41 +76,63 @@ class UberOfferParser {
         }
     }
     
-    /** 출발지/도착지 3단계 fallback 추출 */
+    /** 출발지/도착지 추출 — virtual view 우선 */
     private fun findAddresses(rootNode: AccessibilityNodeInfo): Triple<String, String, ParseConfidence>? {
-        // 1순위: 텍스트 패턴 — "대한민국" 포함 노드 (실제 확인된 방식)
-        try {
-            val addrNodes = rootNode.findAccessibilityNodeInfosByText("대한민국")
-                ?.filter { !it.text.isNullOrBlank() }
-                ?: emptyList()
-            if (addrNodes.size >= 2) {
-                val pickup = addrNodes[0].text?.toString() ?: return null
-                val dropoff = addrNodes[1].text?.toString() ?: return null
-                Log.d(TAG, "주소 추출: 텍스트 패턴")
-                return Triple(pickup, dropoff, ParseConfidence.MEDIUM)
+        // 1순위: virtual view 탐색 (Uber 앱은 getChild()가 아닌 가상 노드 구조 사용)
+        // 트리 순서 = 화면 위→아래 = index 0 이 출발지, index 1 이 도착지
+        val addressTerms = listOf("동", "로", "길")
+        for (term in addressTerms) {
+            try {
+                val nodes = rootNode.findAccessibilityNodeInfosByText(term)
+                    ?.filter { node ->
+                        val t = node.text?.toString()
+                        !t.isNullOrBlank() && t.length > 10  // "동쪽", "로그" 등 단어 제외
+                    }
+                    ?: emptyList()
+                if (nodes.size >= 2) {
+                    val pickup = nodes[0].text.toString()
+                    val dropoff = nodes[1].text.toString()
+                    Log.d(TAG, "주소 추출: virtual view ($term) | 출발: $pickup | 도착: $dropoff")
+                    return Triple(pickup, dropoff, ParseConfidence.MEDIUM)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "virtual view 탐색 실패($term): ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "텍스트 패턴 매칭 실패: ${e.message}")
         }
 
-        // 2순위: 카드 뷰 ViewId
-        val pickup2 = AccessibilityHelper.findNodeByViewId(rootNode, "pick_up_address")?.text?.toString()
-        val dropoff2 = AccessibilityHelper.findNodeByViewId(rootNode, "drop_off_address")?.text?.toString()
+        // 2순위: 전체 화면 ViewId
+        val pickup2 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_details_pickup_address_text_view")?.text?.toString()
+        val dropoff2 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_details_dropoff_address_text_view")?.text?.toString()
         if (pickup2 != null && dropoff2 != null) {
-            Log.d(TAG, "주소 추출: 카드뷰 ViewId")
-            return Triple(pickup2, dropoff2, ParseConfidence.MEDIUM)
-        }
-
-        // 3순위: 전체 화면 ViewId
-        val pickup3 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_details_pickup_address_text_view")?.text?.toString()
-        val dropoff3 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_details_dropoff_address_text_view")?.text?.toString()
-        if (pickup3 != null && dropoff3 != null) {
             Log.d(TAG, "주소 추출: 전체화면 ViewId")
-            return Triple(pickup3, dropoff3, ParseConfidence.HIGH)
+            return Triple(pickup2, dropoff2, ParseConfidence.HIGH)
         }
 
-        // 모든 방법 실패 시 화면 텍스트 덤프
+        // 3순위: 카드 뷰 ViewId
+        val pickup3 = AccessibilityHelper.findNodeByViewId(rootNode, "pick_up_address")?.text?.toString()
+        val dropoff3 = AccessibilityHelper.findNodeByViewId(rootNode, "drop_off_address")?.text?.toString()
+        if (pickup3 != null && dropoff3 != null) {
+            Log.d(TAG, "주소 추출: 카드뷰 ViewId")
+            return Triple(pickup3, dropoff3, ParseConfidence.MEDIUM)
+        }
+
+        // virtual view 진단: findAccessibilityNodeInfosByText로 접근 가능한 모든 노드 탐색
+        Log.w(TAG, "=== VIRTUAL_PROBE: pkg=${rootNode.packageName} childCnt=${rootNode.childCount} ===")
+        val probeTerms = listOf("특별시", "광역시", "인천", "서울", "경기", "공항", "터미널", "동", "로", "길", "수락", "콜")
+        for (term in probeTerms) {
+            try {
+                val found = rootNode.findAccessibilityNodeInfosByText(term) ?: emptyList()
+                found.forEachIndexed { i, node ->
+                    val t = node.text?.toString()
+                    val d = node.contentDescription?.toString()
+                    Log.w(TAG, "VIRTUAL[$term][$i] text='$t' desc='$d' cls=${node.className}")
+                }
+            } catch (_: Exception) {}
+        }
+        // getChild 기반 전체 텍스트 덤프
         val allText = AccessibilityHelper.extractAllText(rootNode)
+        Log.w(TAG, "=== ADDR_DUMP (${allText.length}chars) ===")
+        allText.chunked(500).forEachIndexed { i, chunk -> Log.w(TAG, "ADDR_DUMP[$i]: $chunk") }
         RemoteLogger.logParseResult(false, null, "DUMP:${allText.take(1000)}")
         RemoteLogger.flushNow()
         return null
@@ -124,15 +145,24 @@ class UberOfferParser {
             val distance = DistanceParser.parseDistance(labelText)
             if (distance > 0) return distance
         }
-        
+
         val allText = AccessibilityHelper.extractAllText(rootNode)
+
+        // 0순위: (Xkm) 형태 — "1분 미만(0km) 남음", "11분(3.8km) 남음" 모두 매칭
+        val parenPattern = Regex("\\(([\\d.]+)km\\)")
+        val parenMatch = parenPattern.find(allText)
+        if (parenMatch != null) {
+            val d = parenMatch.groupValues[1].toDoubleOrNull() ?: 0.0
+            if (d >= 0) return d  // 0km도 유효 (아주 가까운 거리)
+        }
+
         val patterns = listOf(
             Regex("\\d+분\\(([\\d.]+)km\\)\\s*남음"),          // "11분(3.8km) 남음" ← 실제 UI
             Regex("픽업까지\\s*([\\d.]+)\\s*km"),               // "픽업까지 3.8km"
             Regex("([\\d.]+)\\s*km\\s*away", RegexOption.IGNORE_CASE),
             Regex("([\\d.]+)\\s*km\\s*to\\s*pickup", RegexOption.IGNORE_CASE)
         )
-        
+
         for (pattern in patterns) {
             val match = pattern.find(allText)
             if (match != null) {
@@ -140,17 +170,22 @@ class UberOfferParser {
                 if (distance > 0) return distance
             }
         }
-        
+
         return 2.0 // 기본값
     }
     
     private fun findAcceptButton(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // 1순위: 텍스트 — 실제 확인된 UI 텍스트
+        // 1순위: 텍스트 — virtual view는 isClickable=false이므로 clickable 체크 없이 직접 반환
         val textVariants = listOf("콜 수락", "수락", "확인", "Accept", "ACCEPT")
         for (text in textVariants) {
-            val node = AccessibilityHelper.findNodeByText(rootNode, text)
-            val btn = AccessibilityHelper.findClickableNode(node)
-            if (btn != null) return btn
+            try {
+                val nodes = rootNode.findAccessibilityNodeInfosByText(text) ?: continue
+                val node = nodes.firstOrNull { it.text?.toString() == text } ?: nodes.firstOrNull()
+                if (node != null) {
+                    Log.d(TAG, "버튼 발견: text=${node.text} isClickable=${node.isClickable} cls=${node.className}")
+                    return node
+                }
+            } catch (_: Exception) {}
         }
 
         // 2순위: ViewId — isClickable 무관하게 반환 (performAction은 non-clickable 노드도 동작 가능)

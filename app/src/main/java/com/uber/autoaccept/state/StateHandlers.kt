@@ -128,25 +128,35 @@ class AcceptingHandler : BaseStateHandler() {
 
         com.uber.autoaccept.service.FloatingWidgetService.disableTargetTouch()
 
-        repeat(5) { i ->
+        // 1차: Shizuku input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
+        if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
+            val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
+            Log.i("UAA", "[ACCEPT] Shizuku 탭 ${if (ok) "✅" else "❌"} (${target.x},${target.y})")
+            com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
+            RemoteLogger.logActionResult("accept", ok, "Shizuku_tap(${target.x},${target.y})")
+            return StateEvent.AcceptSuccess("Shizuku_tap")
+        }
+
+        // 2차: dispatchGesture fallback (Shizuku 미설치/미권한 시)
+        Log.w("UAA", "[ACCEPT] Shizuku 미사용 → dispatchGesture fallback")
+        if (svc != null) {
             val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
             val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
             svc.dispatchGesture(
                 android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
                 object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
                     override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                        Log.i("UAA", "[ACCEPT] 탭 ${i + 1}/5 ✅ completed (${target.x},${target.y})")
+                        Log.i("UAA", "[ACCEPT] 탭 ✅ completed (${target.x},${target.y})")
                     }
                     override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                        Log.w("UAA", "[ACCEPT] 탭 ${i + 1}/5 ❌ cancelled (${target.x},${target.y})")
+                        Log.w("UAA", "[ACCEPT] 탭 ❌ cancelled (${target.x},${target.y})")
                     }
                 }, null
             )
-            delay(150)
         }
 
         com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-        Log.i("UAA", "[ACCEPT] ✅ 제스처 완료 (${target.x},${target.y})")
+        Log.i("UAA", "[ACCEPT] ✅ 완료 (${target.x},${target.y})")
         RemoteLogger.logActionResult("accept", true, "dispatchGesture(${target.x},${target.y})")
         return StateEvent.AcceptSuccess("dispatchGesture")
     }

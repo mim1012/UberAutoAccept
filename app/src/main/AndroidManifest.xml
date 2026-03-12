@@ -54,6 +54,15 @@
                 android:value="floating_overlay_control" />
         </service>
 
+        <!-- Shizuku Provider -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <!-- Accessibility Service -->
         <service
             android:name=".service.UberAccessibilityService"

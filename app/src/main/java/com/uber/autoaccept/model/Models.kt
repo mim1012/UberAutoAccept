@@ -7,9 +7,7 @@ import android.view.accessibility.AccessibilityNodeInfo
  * 필터링 모드
  */
 enum class FilterMode {
-    AIRPORT,        // 인천공항 모드
-    SEOUL_ENTRY,    // 서울 진입 모드
-    BOTH,           // 두 모드 모두
+    ENABLED,        // 활성화
     DISABLED        // 비활성화
 }
 
@@ -17,22 +15,13 @@ enum class FilterMode {
  * 필터 설정
  */
 data class FilterSettings(
-    val mode: FilterMode = FilterMode.BOTH,
-    val minCustomerDistance: Double = 0.0,
-    val maxCustomerDistance: Double = 3.0,
-    // 시나리오별 고객 거리 상한
-    val seoulPickupMaxDistance: Double = 3.0,     // 출발지 서울: 고객 거리 3km 이내
-    val airportPickupMaxDistance: Double = 7.0,   // 출발지 인천공항: 고객 거리 7km 이내
-    val minFare: Int = 0,
+    val mode: FilterMode = FilterMode.ENABLED,
+    val maxCustomerDistance: Double = 5.0,
+    val pickupKeywords: List<String> = listOf("특별시"),
     val airportKeywords: List<String> = listOf(
         "인천공항", "인천국제", "용유동", "운서동", "운서1동", "운서2동",
         "공항로", "공항연결로", "제2터미널대로", "Incheon Int",
         "영종해안남로", "제1여객터미널", "제2여객터미널"
-    ),
-    val seoulKeywords: List<String> = listOf(
-        "서울", "Seoul", "강남", "강북", "종로", "중구", "용산", "성동", "광진", "동대문",
-        "중랑", "성북", "도봉", "노원", "은평", "서대문", "마포", "양천", "강서",
-        "구로", "금천", "영등포", "동작", "관악", "서초", "송파", "강동"
     )
 )
 

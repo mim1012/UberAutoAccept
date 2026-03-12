@@ -66,6 +66,8 @@ object AccessibilityHelper {
     private fun extractTextRecursive(node: AccessibilityNodeInfo, sb: StringBuilder) {
         try {
             node.text?.let { sb.append(it).append(" ") }
+            // contentDescription도 포함 — Uber 앱은 주소를 contentDescription에 저장함
+            node.contentDescription?.takeIf { it != node.text }?.let { sb.append(it).append(" ") }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { extractTextRecursive(it, sb) }
             }

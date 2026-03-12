@@ -149,6 +149,20 @@ object RemoteLogger {
         ))
     }
 
+    fun logOpenCVDetection(detected: Boolean, buttonCx: Float? = null, buttonCy: Float? = null, reason: String? = null) {
+        enqueue(LogEntry(
+            type = LogType.DEBUG,
+            data = mapOf(
+                "event_type" to "opencv_detection",
+                "detected" to detected,
+                "button_cx" to buttonCx,
+                "button_cy" to buttonCy,
+                "reason" to (reason ?: if (detected) "ok" else "not_found"),
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
     fun logDiagnostic(reason: String, details: Map<String, Any?> = emptyMap()) {
         enqueue(LogEntry(
             type = LogType.DEBUG,

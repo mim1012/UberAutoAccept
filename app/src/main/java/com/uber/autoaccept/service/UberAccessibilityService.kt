@@ -66,22 +66,35 @@ class UberAccessibilityService : AccessibilityService() {
             }
             val (tx, ty) = lpToClickCoord(lpX, lpY)
             Log.i("UAA", "[TEST] 테스트 탭 실행: lp=($lpX,$lpY) → click=($tx,$ty)")
-            FloatingWidgetService.disableTargetTouch()
-            val path = android.graphics.Path().apply { moveTo(tx, ty) }
-            val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
-            dispatchGesture(
-                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
-                object : AccessibilityService.GestureResultCallback() {
-                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                        Log.i("UAA", "[TEST] ✅ 제스처 completed ($tx, $ty)")
-                        FloatingWidgetService.enableTargetTouch()
-                    }
-                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                        Log.w("UAA", "[TEST] ❌ 제스처 cancelled ($tx, $ty)")
-                        FloatingWidgetService.enableTargetTouch()
-                    }
-                }, null
-            )
+
+            if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
+                // Shizuku: input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
+                serviceScope.launch {
+                    FloatingWidgetService.disableTargetTouch()
+                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(tx, ty)
+                    Log.i("UAA", "[TEST] Shizuku tap ${if (ok) "✅" else "❌"} ($tx,$ty)")
+                    FloatingWidgetService.enableTargetTouch()
+                }
+            } else {
+                // fallback: dispatchGesture
+                Log.w("UAA", "[TEST] Shizuku 미사용 → dispatchGesture fallback")
+                FloatingWidgetService.disableTargetTouch()
+                val path = android.graphics.Path().apply { moveTo(tx, ty) }
+                val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
+                dispatchGesture(
+                    android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+                    object : AccessibilityService.GestureResultCallback() {
+                        override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                            Log.i("UAA", "[TEST] ✅ 제스처 completed ($tx, $ty)")
+                            FloatingWidgetService.enableTargetTouch()
+                        }
+                        override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                            Log.w("UAA", "[TEST] ❌ 제스처 cancelled ($tx, $ty)")
+                            FloatingWidgetService.enableTargetTouch()
+                        }
+                    }, null
+                )
+            }
         }
     }
 
@@ -255,9 +268,9 @@ class UberAccessibilityService : AccessibilityService() {
         if (currentState is AppState.Online) {
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                // 오퍼 카드 로딩 대기 후 재시도 (최대 3회, 200ms 간격)
+                // 오퍼 카드 로딩 대기 후 재시도 (최대 3회, 50ms 간격)
                 repeat(3) { attempt ->
-                    delay(200)
+                    delay(50)
                     if (stateMachine.getCurrentState() is AppState.Online) {
                         val offerRoot = findOfferWindow()
                         if (offerRoot != null) {
@@ -289,7 +302,7 @@ class UberAccessibilityService : AccessibilityService() {
             // debounce: 화면 점진적 로딩 중 과다 이벤트 필터링
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                delay(300)
+                delay(50)
                 if (stateMachine.getCurrentState() !is AppState.Online) return@launch
                 val offerRoot = findOfferWindow()
                 if (offerRoot != null) {
@@ -342,18 +355,21 @@ class UberAccessibilityService : AccessibilityService() {
         val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
             ?: listOfNotNull(rootInActiveWindow)
 
+        // 1단계: 모든 창에서 "콜 수락" 즉시 탐색 — 발견 즉시 반환 (부정 체크 불필요)
+        for (root in roots) {
+            if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
+                Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} (콜수락 즉시 감지)")
+                return root
+            }
+        }
+
+        // 2단계: "콜 수락" 없을 때만 폭넓은 탐색
         for (root in roots) {
             // 비오퍼 화면 제외
             if (helper.findNodeByText(root, "운행 리스트") != null) continue
             if (helper.findNodeByText(root, "새로운 콜") != null) continue
             if (helper.findNodeByText(root, "지금은 요청이 없습니다") != null) continue
             if (helper.findNodeByText(root, "요청 1건 매칭") != null) continue
-
-            // 1순위: "콜 수락" 텍스트 (오퍼 화면 확실)
-            if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
-                Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} childCnt=${root.childCount} (콜수락 감지)")
-                return root
-            }
 
             // 2순위: 광역 행정구역 키워드 (파서와 동일한 전략)
             val cityKeywords = listOf("특별시", "광역시", "특별자치시")
@@ -412,15 +428,21 @@ class UberAccessibilityService : AccessibilityService() {
             prefs.edit().putString("device_id", deviceId).apply()
         }
 
+        val pickupKeywords = prefs.getStringSet("pickup_keywords", null)
+            ?.toList()?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf("특별시")
+
         return AppConfig(
             filterSettings = FilterSettings(
                 mode = if (enabled) FilterMode.ENABLED else FilterMode.DISABLED,
-                maxCustomerDistance = maxDist
+                maxCustomerDistance = maxDist,
+                pickupKeywords = pickupKeywords
             ),
             enableShizuku = prefs.getBoolean("enable_shizuku", true),
             enableLogging = prefs.getBoolean("enable_logging", true),
-            autoAcceptDelay = prefs.getLong("auto_accept_delay", 200L),
-            humanizationEnabled = prefs.getBoolean("humanization_enabled", true),
+            autoAcceptDelay = prefs.getLong("auto_accept_delay", 0L),
+            humanizationEnabled = prefs.getBoolean("humanization_enabled", false),
             remoteLoggingEnabled = prefs.getBoolean("remote_logging_enabled", true),
             deviceId = deviceId
         )

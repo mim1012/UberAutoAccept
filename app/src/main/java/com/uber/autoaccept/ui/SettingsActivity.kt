@@ -1,21 +1,24 @@
 package com.uber.autoaccept.ui
 
 import android.content.Context
+import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.uber.autoaccept.R
-import com.uber.autoaccept.model.FilterMode
 
 class SettingsActivity : AppCompatActivity() {
-    
-    private lateinit var modeSpinner: Spinner
-    private lateinit var seoulDistanceSeekBar: SeekBar
+
     private lateinit var airportDistanceSeekBar: SeekBar
-    private lateinit var seoulDistanceText: TextView
     private lateinit var airportDistanceText: TextView
     private lateinit var saveButton: Button
     private lateinit var remoteLoggingSwitch: Switch
+    private lateinit var pickupKeywordsContainer: LinearLayout
+    private lateinit var pickupKeywordInput: EditText
+    private lateinit var addPickupKeywordButton: Button
+
+    private val pickupKeywords = mutableListOf<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,16 +27,16 @@ class SettingsActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "설정"
 
-        modeSpinner = findViewById(R.id.mode_spinner)
-        seoulDistanceSeekBar = findViewById(R.id.seoul_distance_seekbar)
         airportDistanceSeekBar = findViewById(R.id.airport_distance_seekbar)
-        seoulDistanceText = findViewById(R.id.seoul_distance_text)
         airportDistanceText = findViewById(R.id.airport_distance_text)
         saveButton = findViewById(R.id.save_button)
         remoteLoggingSwitch = findViewById(R.id.remote_logging_switch)
+        pickupKeywordsContainer = findViewById(R.id.pickup_keywords_container)
+        pickupKeywordInput = findViewById(R.id.pickup_keyword_input)
+        addPickupKeywordButton = findViewById(R.id.add_pickup_keyword_button)
 
-        setupModeSpinner()
-        setupDistanceSeekBars()
+        setupDistanceSeekBar()
+        setupPickupKeywords()
         loadSettings()
 
         saveButton.setOnClickListener {
@@ -41,28 +44,51 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, "설정이 저장되었습니다", Toast.LENGTH_SHORT).show()
             finish()
         }
-
     }
-    
-    private fun setupModeSpinner() {
-        val modes = arrayOf("인천공항 모드", "서울 진입 모드", "두 모드 모두", "비활성화")
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        modeSpinner.adapter = adapter
-    }
-    
-    private fun setupDistanceSeekBars() {
-        seoulDistanceSeekBar.max = 100   // 0.0 ~ 10.0 km (0.1 단위)
-        airportDistanceSeekBar.max = 150 // 0.0 ~ 15.0 km (0.1 단위)
 
-        seoulDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val distance = progress / 10.0
-                seoulDistanceText.text = String.format("최대 고객 거리: %.1f km", distance)
+    private fun setupPickupKeywords() {
+        addPickupKeywordButton.setOnClickListener {
+            val kw = pickupKeywordInput.text.toString().trim()
+            if (kw.isEmpty()) {
+                Toast.makeText(this, "키워드를 입력하세요", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
+            if (pickupKeywords.contains(kw)) {
+                Toast.makeText(this, "이미 존재하는 키워드입니다", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            pickupKeywords.add(kw)
+            pickupKeywordInput.text.clear()
+            renderPickupKeywords()
+        }
+    }
+
+    private fun renderPickupKeywords() {
+        pickupKeywordsContainer.removeAllViews()
+        pickupKeywords.forEach { kw ->
+            val tag = TextView(this).apply {
+                text = "✕  $kw"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor("#1976D2"))
+                setPadding(24, 12, 24, 12)
+                gravity = Gravity.CENTER_VERTICAL
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 0, 8) }
+                layoutParams = params
+                setOnClickListener {
+                    pickupKeywords.remove(kw)
+                    renderPickupKeywords()
+                }
+            }
+            pickupKeywordsContainer.addView(tag)
+        }
+    }
+
+    private fun setupDistanceSeekBar() {
+        airportDistanceSeekBar.max = 150 // 0.0 ~ 15.0 km (0.1 단위)
 
         airportDistanceSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -73,50 +99,37 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
     }
-    
+
     private fun loadSettings() {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
 
-        val modeString = prefs.getString("filter_mode", FilterMode.BOTH.name) ?: FilterMode.BOTH.name
-        val modeIndex = when (modeString) {
-            FilterMode.AIRPORT.name -> 0
-            FilterMode.SEOUL_ENTRY.name -> 1
-            FilterMode.BOTH.name -> 2
-            else -> 3
-        }
-        modeSpinner.setSelection(modeIndex)
-
-        val seoulDist = prefs.getFloat("seoul_pickup_max_distance", 3.0f)
-        val airportDist = prefs.getFloat("airport_pickup_max_distance", 7.0f)
-
-        seoulDistanceSeekBar.progress = (seoulDist * 10).toInt()
-        airportDistanceSeekBar.progress = (airportDist * 10).toInt()
+        // 기존 airport_pickup_max_distance 값으로 마이그레이션
+        val maxDist = prefs.getFloat("max_customer_distance",
+            prefs.getFloat("airport_pickup_max_distance", 5.0f))
+        airportDistanceSeekBar.progress = (maxDist * 10).toInt()
 
         remoteLoggingSwitch.isChecked = prefs.getBoolean("remote_logging_enabled", true)
+
+        val savedKeywords = prefs.getStringSet("pickup_keywords", null)
+        pickupKeywords.clear()
+        pickupKeywords.addAll(savedKeywords?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+            ?: listOf("특별시"))
+        renderPickupKeywords()
     }
-    
+
     private fun saveSettings() {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
 
-        val mode = when (modeSpinner.selectedItemPosition) {
-            0 -> FilterMode.AIRPORT
-            1 -> FilterMode.SEOUL_ENTRY
-            2 -> FilterMode.BOTH
-            else -> FilterMode.DISABLED
-        }
-
-        val seoulDist = seoulDistanceSeekBar.progress / 10.0f
-        val airportDist = airportDistanceSeekBar.progress / 10.0f
+        val maxDist = airportDistanceSeekBar.progress / 10.0f
 
         prefs.edit().apply {
-            putString("filter_mode", mode.name)
-            putFloat("seoul_pickup_max_distance", seoulDist)
-            putFloat("airport_pickup_max_distance", airportDist)
+            putFloat("max_customer_distance", maxDist)
             putBoolean("remote_logging_enabled", remoteLoggingSwitch.isChecked)
+            putStringSet("pickup_keywords", pickupKeywords.toSet())
             apply()
         }
     }
-    
+
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true

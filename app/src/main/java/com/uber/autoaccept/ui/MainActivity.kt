@@ -20,7 +20,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.uber.autoaccept.R
 import com.uber.autoaccept.auth.AuthManager
-import com.uber.autoaccept.model.FilterMode
 import com.uber.autoaccept.service.FloatingWidgetService
 import com.uber.autoaccept.service.ServiceState
 import java.text.SimpleDateFormat
@@ -306,16 +305,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun getConfigSummary(): String {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
-        val modeString = prefs.getString("filter_mode", FilterMode.BOTH.name) ?: FilterMode.BOTH.name
-        val seoulDist = prefs.getFloat("seoul_pickup_max_distance", 3.0f)
-        val airportDist = prefs.getFloat("airport_pickup_max_distance", 7.0f)
-        val modeText = when (modeString) {
-            FilterMode.AIRPORT.name -> "인천공항 모드"
-            FilterMode.SEOUL_ENTRY.name -> "서울 진입 모드"
-            FilterMode.BOTH.name -> "두 모드 모두"
-            else -> "비활성화"
-        }
-        return "모드: $modeText\n서울출발 고객거리: ${seoulDist}km 이내\n공항출발 고객거리: ${airportDist}km 이내"
+        val enabled = prefs.getString("filter_mode", "ENABLED") != "DISABLED"
+        val maxDist = prefs.getFloat("max_customer_distance",
+            prefs.getFloat("airport_pickup_max_distance", 5.0f))
+        val modeText = if (enabled) "활성화" else "비활성화"
+        return "모드: $modeText\n최대 고객 거리: ${maxDist}km 이내"
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
