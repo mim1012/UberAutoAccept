@@ -99,7 +99,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun lpToClickCoord(lpX: Float, lpY: Float): Pair<Float, Float> {
-        val halfPx = resources.displayMetrics.density * 40f  // 80dp의 절반
+        val halfPx = resources.displayMetrics.density * 60f  // 120dp의 절반
         return Pair(lpX + halfPx, lpY + halfPx)
     }
     
@@ -433,11 +433,19 @@ class UberAccessibilityService : AccessibilityService() {
             ?.takeIf { it.isNotEmpty() }
             ?: listOf("특별시")
 
+        val enabledConditions = buildSet<Int> {
+            if (prefs.getBoolean("condition1_enabled", true)) add(1)
+            if (prefs.getBoolean("condition2_enabled", true)) add(2)
+            if (prefs.getBoolean("condition3_enabled", true)) add(3)
+            if (prefs.getBoolean("condition4_enabled", true)) add(4)
+        }
+
         return AppConfig(
             filterSettings = FilterSettings(
                 mode = if (enabled) FilterMode.ENABLED else FilterMode.DISABLED,
                 maxCustomerDistance = maxDist,
-                pickupKeywords = pickupKeywords
+                pickupKeywords = pickupKeywords,
+                enabledConditions = enabledConditions
             ),
             enableShizuku = prefs.getBoolean("enable_shizuku", true),
             enableLogging = prefs.getBoolean("enable_logging", true),

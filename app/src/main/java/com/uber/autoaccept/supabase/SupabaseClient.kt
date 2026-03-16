@@ -35,11 +35,11 @@ object SupabaseClient {
                 conn.connectTimeout = TIMEOUT_MS
                 conn.readTimeout = TIMEOUT_MS
                 conn.doOutput = true
-                OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(gson.toJson(body)) }
 
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
-                val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                 if (code !in 200..299) throw SupabaseException(code, response)
 
                 val type = object : TypeToken<Map<String, Any?>>() {}.type
@@ -65,7 +65,7 @@ object SupabaseClient {
 
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
-                val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                 if (code !in 200..299) throw SupabaseException(code, response)
 
                 val type = object : TypeToken<List<Map<String, Any?>>>() {}.type
@@ -90,12 +90,12 @@ object SupabaseClient {
                 conn.connectTimeout = TIMEOUT_MS
                 conn.readTimeout = TIMEOUT_MS
                 conn.doOutput = true
-                OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(gson.toJson(body)) }
 
                 val code = conn.responseCode
                 if (code !in 200..299) {
                     val stream = conn.errorStream ?: conn.inputStream
-                    val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                    val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                     throw SupabaseException(code, response)
                 }
             } finally {
@@ -116,11 +116,11 @@ object SupabaseClient {
                 conn.connectTimeout = TIMEOUT_MS
                 conn.readTimeout = TIMEOUT_MS
                 conn.doOutput = true
-                OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(gson.toJson(body)) }
 
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
-                val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                 if (code !in 200..299) throw SupabaseException(code, response)
 
                 val type = object : TypeToken<Map<String, Any?>>() {}.type
@@ -146,12 +146,12 @@ object SupabaseClient {
                 conn.connectTimeout = TIMEOUT_MS
                 conn.readTimeout = TIMEOUT_MS
                 conn.doOutput = true
-                OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(body)) }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(gson.toJson(body)) }
 
                 val code = conn.responseCode
                 if (code !in 200..299) {
                     val stream = conn.errorStream ?: conn.inputStream
-                    val response = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                    val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
                     throw SupabaseException(code, response)
                 }
             } finally {

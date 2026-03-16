@@ -23,12 +23,26 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
         Log.d(TAG, "오퍼 파싱 시작...")
 
         val offer = parser.parseOfferDetails(rootNode)
-        
+
         return if (offer != null) {
             Log.i("UAA", "[PARSE] ✅ 파싱 성공 | 출발: ${offer.pickupLocation} | 도착: ${offer.dropoffLocation} | 고객거리: ${offer.customerDistance}km | 버튼발견: ${offer.acceptButtonNode != null}")
+            RemoteLogger.logParseResult(
+                success = true,
+                offerData = com.uber.autoaccept.logging.ParsedOfferData(
+                    offerUuid = offer.offerUuid,
+                    pickup = offer.pickupLocation,
+                    dropoff = offer.dropoffLocation,
+                    customerDistance = offer.customerDistance,
+                    tripDistance = offer.tripDistance,
+                    parseConfidence = offer.parseConfidence.name,
+                    acceptButtonFound = offer.acceptButtonNode != null
+                ),
+                error = null
+            )
             StateEvent.OfferParsed(offer)
         } else {
             Log.e("UAA", "[PARSE] ❌ 파싱 실패 — ViewId/텍스트 모두 실패 (Uber 앱 버전 변경 가능성)")
+            RemoteLogger.logParseResult(success = false, offerData = null, error = "ViewId/텍스트 파싱 실패")
             StateEvent.ErrorOccurred("오퍼 파싱 실패")
         }
     }

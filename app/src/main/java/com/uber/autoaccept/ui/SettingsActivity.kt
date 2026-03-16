@@ -17,6 +17,10 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var pickupKeywordsContainer: LinearLayout
     private lateinit var pickupKeywordInput: EditText
     private lateinit var addPickupKeywordButton: Button
+    private lateinit var condition1Checkbox: android.widget.CheckBox
+    private lateinit var condition2Checkbox: android.widget.CheckBox
+    private lateinit var condition3Checkbox: android.widget.CheckBox
+    private lateinit var condition4Checkbox: android.widget.CheckBox
 
     private val pickupKeywords = mutableListOf<String>()
 
@@ -34,6 +38,10 @@ class SettingsActivity : AppCompatActivity() {
         pickupKeywordsContainer = findViewById(R.id.pickup_keywords_container)
         pickupKeywordInput = findViewById(R.id.pickup_keyword_input)
         addPickupKeywordButton = findViewById(R.id.add_pickup_keyword_button)
+        condition1Checkbox = findViewById(R.id.condition1_checkbox)
+        condition2Checkbox = findViewById(R.id.condition2_checkbox)
+        condition3Checkbox = findViewById(R.id.condition3_checkbox)
+        condition4Checkbox = findViewById(R.id.condition4_checkbox)
 
         setupDistanceSeekBar()
         setupPickupKeywords()
@@ -110,6 +118,11 @@ class SettingsActivity : AppCompatActivity() {
 
         remoteLoggingSwitch.isChecked = prefs.getBoolean("remote_logging_enabled", true)
 
+        condition1Checkbox.isChecked = prefs.getBoolean("condition1_enabled", true)
+        condition2Checkbox.isChecked = prefs.getBoolean("condition2_enabled", true)
+        condition3Checkbox.isChecked = prefs.getBoolean("condition3_enabled", true)
+        condition4Checkbox.isChecked = prefs.getBoolean("condition4_enabled", true)
+
         val savedKeywords = prefs.getStringSet("pickup_keywords", null)
         pickupKeywords.clear()
         pickupKeywords.addAll(savedKeywords?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
@@ -126,6 +139,10 @@ class SettingsActivity : AppCompatActivity() {
             putFloat("max_customer_distance", maxDist)
             putBoolean("remote_logging_enabled", remoteLoggingSwitch.isChecked)
             putStringSet("pickup_keywords", pickupKeywords.toSet())
+            putBoolean("condition1_enabled", condition1Checkbox.isChecked)
+            putBoolean("condition2_enabled", condition2Checkbox.isChecked)
+            putBoolean("condition3_enabled", condition3Checkbox.isChecked)
+            putBoolean("condition4_enabled", condition4Checkbox.isChecked)
             apply()
         }
     }

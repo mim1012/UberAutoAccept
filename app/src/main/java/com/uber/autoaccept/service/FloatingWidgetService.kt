@@ -146,7 +146,7 @@ class FloatingWidgetService : Service() {
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
 
-        val halfPx = (40 * resources.displayMetrics.density).toInt()
+        val halfPx = (60 * resources.displayMetrics.density).toInt()
         // 자동클릭커 방식: lp_x/y 직접 저장/로드
         val savedX = prefs.getFloat("target_lp_x", (screenWidth / 2 - halfPx).toFloat()).toInt()
         val savedY = prefs.getFloat("target_lp_y", (screenHeight / 2 - halfPx).toFloat()).toInt()

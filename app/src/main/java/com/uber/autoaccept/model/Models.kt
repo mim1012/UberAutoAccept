@@ -22,7 +22,8 @@ data class FilterSettings(
         "인천공항", "인천국제", "용유동", "운서동", "운서1동", "운서2동",
         "공항로", "공항연결로", "제2터미널대로", "Incheon Int",
         "영종해안남로", "제1여객터미널", "제2여객터미널"
-    )
+    ),
+    val enabledConditions: Set<Int> = setOf(1, 2, 3, 4)
 )
 
 /**

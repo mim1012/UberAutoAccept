@@ -40,6 +40,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var enableButton: Button
     private lateinit var startStopButton: Button
     private lateinit var settingsButton: Button
+    private lateinit var statusAccessibility: TextView
+    private lateinit var statusShizuku: TextView
+    private lateinit var statusRemoteLogging: TextView
+    private val statusRefreshHandler = Handler(Looper.getMainLooper())
+    private val statusRefreshRunnable = object : Runnable {
+        override fun run() {
+            updateStatusCard()
+            statusRefreshHandler.postDelayed(this, 2000)
+        }
+    }
 
     private lateinit var authManager: AuthManager
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -57,6 +67,9 @@ class MainActivity : AppCompatActivity() {
         enableButton = findViewById(R.id.enable_button)
         startStopButton = findViewById(R.id.start_stop_button)
         settingsButton = findViewById(R.id.settings_button)
+        statusAccessibility = findViewById(R.id.status_accessibility)
+        statusShizuku = findViewById(R.id.status_shizuku)
+        statusRemoteLogging = findViewById(R.id.status_remote_logging)
 
         authManager = AuthManager.getInstance(this)
 
@@ -97,6 +110,13 @@ class MainActivity : AppCompatActivity() {
         if (isAuthenticated) {
             updateStatus()
         }
+        updateStatusCard()
+        statusRefreshHandler.post(statusRefreshRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        statusRefreshHandler.removeCallbacks(statusRefreshRunnable)
     }
 
     private fun checkPhonePermissionAndAuthenticate() {
@@ -323,5 +343,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun openAccessibilitySettings() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun updateStatusCard() {
+        // 접근성 서비스
+        val accessibilityOn = isAccessibilityServiceEnabled()
+        statusAccessibility.text = if (accessibilityOn) "● 접근성 서비스: 활성화" else "● 접근성 서비스: 비활성화"
+        statusAccessibility.setTextColor(if (accessibilityOn) 0xFF4CAF50.toInt() else 0xFFF44336.toInt())
+
+        // Shizuku
+        val shizukuOn = com.uber.autoaccept.utils.ShizukuHelper.hasPermission()
+        statusShizuku.text = if (shizukuOn) "● Shizuku: 활성화" else "● Shizuku: 비활성화"
+        statusShizuku.setTextColor(if (shizukuOn) 0xFF4CAF50.toInt() else 0xFFFF9800.toInt())
+
+        // 원격 로깅
+        val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
+        val remoteLoggingOn = prefs.getBoolean("remote_logging_enabled", true)
+        statusRemoteLogging.text = if (remoteLoggingOn) "● 원격 로깅: 활성화" else "● 원격 로깅: 비활성화"
+        statusRemoteLogging.setTextColor(if (remoteLoggingOn) 0xFF4CAF50.toInt() else 0xFF888888.toInt())
     }
 }

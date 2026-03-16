@@ -32,13 +32,100 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="32dp" />
 
-        <!-- 출발지 키워드 섹션 -->
+        <!-- 수락 조건 섹션 -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:background="#CCCCCC"
             android:layout_marginBottom="16dp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="수락 조건"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="체크된 조건 중 하나라도 만족하면 콜을 수락합니다"
+            android:textSize="12sp"
+            android:textColor="#666666"
+            android:layout_marginBottom="12dp" />
+
+        <CheckBox
+            android:id="@+id/condition1_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="조건 1: 출발지(서울/특별시) → 도착지(인천공항)"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="  └ 서울에서 출발해 인천공항으로 가는 콜"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="10dp" />
+
+        <CheckBox
+            android:id="@+id/condition2_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="조건 2: 출발지(인천공항) → 도착지(어디든)"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="  └ 인천공항에서 출발하는 모든 콜"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="10dp" />
+
+        <CheckBox
+            android:id="@+id/condition3_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="조건 3: 출발지(광역시) → 도착지(서울/특별시)"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="  └ 부산·대구 등 광역시에서 서울로 가는 콜"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="10dp" />
+
+        <CheckBox
+            android:id="@+id/condition4_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="조건 4: 출발지(어디든) → 도착지(인천공항)"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="  └ 출발지 무관, 인천공항으로 가는 모든 콜"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="24dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 출발지 키워드 섹션 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
