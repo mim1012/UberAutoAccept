@@ -97,19 +97,51 @@ object RemoteLogger {
     fun logServiceConnected() {
         enqueue(LogEntry(
             type = LogType.LIFECYCLE,
-            data = mapOf("event_type" to "connected", "details" to "Service onServiceConnected")
+            data = mapOf(
+                "event_type" to "connected",
+                "details" to "Service onServiceConnected",
+                "timestamp" to System.currentTimeMillis()
+            )
         ))
     }
 
     fun logServiceDisconnected(reason: String) {
         enqueue(LogEntry(
             type = LogType.LIFECYCLE,
-            data = mapOf("event_type" to "disconnected", "details" to reason)
+            data = mapOf(
+                "event_type" to "disconnected",
+                "details" to reason,
+                "timestamp" to System.currentTimeMillis()
+            )
         ))
         scope?.launch {
             runCatching { markServiceDisconnected() }
             flush()
         }
+    }
+
+    /**
+     * 복구 이벤트 로그 — 원인 추적의 핵심.
+     * @param component 복구 대상 ("service_state", "shizuku", "accessibility")
+     * @param trigger 복구를 유발한 원인 ("on_interrupt", "tap_ipc_failure", "binder_dead", "event_auto_recover", "process_restart")
+     * @param success 복구 성공 여부
+     * @param details 추가 컨텍스트 (에러 메시지, 시도 횟수 등)
+     */
+    fun logRecovery(component: String, trigger: String, success: Boolean, details: Map<String, Any?> = emptyMap()) {
+        enqueue(LogEntry(
+            type = LogType.LIFECYCLE,
+            data = mapOf(
+                "event_type" to "recovery",
+                "component" to component,
+                "trigger" to trigger,
+                "success" to success,
+                "shizuku_bound" to com.uber.autoaccept.utils.ShizukuHelper.isServiceBound(),
+                "service_active" to com.uber.autoaccept.service.ServiceState.isActive(),
+                "timestamp" to System.currentTimeMillis()
+            ) + details
+        ))
+        // 복구 이벤트는 즉시 flush — 디바이스가 다시 죽을 수 있음
+        flushNow()
     }
 
     fun logParseResult(success: Boolean, offerData: ParsedOfferData?, error: String?) {
@@ -175,6 +207,58 @@ object RemoteLogger {
         ))
     }
 
+    fun logShizukuBind(success: Boolean, latencyMs: Long, error: String? = null) {
+        enqueue(LogEntry(
+            type = LogType.SHIZUKU,
+            data = mapOf(
+                "event_type" to "bind",
+                "success" to success,
+                "latency_ms" to latencyMs,
+                "error" to error,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
+    fun logShizukuTap(success: Boolean, latencyMs: Long, x: Int, y: Int, times: Int) {
+        enqueue(LogEntry(
+            type = LogType.SHIZUKU,
+            data = mapOf(
+                "event_type" to "tap",
+                "success" to success,
+                "latency_ms" to latencyMs,
+                "x" to x,
+                "y" to y,
+                "times" to times,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
+    fun logShizukuDisconnect(reason: String) {
+        enqueue(LogEntry(
+            type = LogType.SHIZUKU,
+            data = mapOf(
+                "event_type" to "disconnect",
+                "reason" to reason,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
+    fun logShizukuRebind(trigger: String, hasPermission: Boolean, alreadyBound: Boolean) {
+        enqueue(LogEntry(
+            type = LogType.SHIZUKU,
+            data = mapOf(
+                "event_type" to "rebind_attempt",
+                "trigger" to trigger,
+                "has_permission" to hasPermission,
+                "already_bound" to alreadyBound,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ))
+    }
+
     fun flushNow() {
         if (!enabled) return
         scope?.launch { flush() }
@@ -232,6 +316,9 @@ object RemoteLogger {
                 "os_version" to Build.VERSION.RELEASE,
                 "app_version" to appVersion,
                 "filter_mode" to filterMode,
+                "service_active" to com.uber.autoaccept.service.ServiceState.isActive(),
+                "shizuku_bound" to com.uber.autoaccept.utils.ShizukuHelper.isServiceBound(),
+                "shizuku_available" to com.uber.autoaccept.utils.ShizukuHelper.isAvailable(),
                 "updated_at" to now
             )
             SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY, onConflict = "device_id")

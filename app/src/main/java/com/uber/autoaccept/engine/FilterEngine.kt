@@ -16,11 +16,11 @@ class FilterEngine(private val settings: FilterSettings) {
             return FilterResult.Rejected(listOf("필터 비활성화"))
         }
 
-        // 조건1: 출발지 pickupKeywords 중 하나 AND 도착지 공항 키워드 OR 광역시
+        // 조건1: 출발지 pickupKeywords 중 하나 AND 도착지 공항 키워드 OR pickupKeywords 중 하나
         val condition1 = 1 in settings.enabledConditions &&
             settings.pickupKeywords.any { offer.pickupLocation.contains(it, ignoreCase = true) } &&
             (settings.airportKeywords.any { offer.dropoffLocation.contains(it, ignoreCase = true) } ||
-                offer.dropoffLocation.contains("광역시", ignoreCase = true))
+                settings.pickupKeywords.any { offer.dropoffLocation.contains(it, ignoreCase = true) })
 
         // 조건2: 출발지 공항 키워드 (도착지 무관, 모든 콜)
         val condition2 = 2 in settings.enabledConditions &&
