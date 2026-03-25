@@ -2,7 +2,14 @@
 
 Vortex 상태 머신 기반 Uber 드라이버 자동 콜 수락 Android 앱.
 
-## 설치 (사용자용)
+## 다운로드 (사용자용)
+
+**다운로드 페이지**: https://mim1012.github.io/UberAutoAccept/download.html
+
+1. 위 링크 접속 (카톡으로 공유받은 링크)
+2. **등록된 전화번호** + **비밀번호** 입력
+3. 인증 성공 → **Shizuku** + **UberAutoAccept** 두 개 다운로드
+4. 링크는 5분간 유효 — 만료 시 다시 인증
 
 **두 개 APK가 한 세트입니다.** 반드시 둘 다 설치해야 정상 동작합니다.
 
@@ -77,6 +84,17 @@ curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/uber_users?select=devi
 
 앱에서 업데이트 확인 시 `get_download_url(device_id, current_version)` RPC가 호출되며, `uber_users`에 없는 기기는 `allowed: false`를 받아 다운로드 불가.
 
+### 다운로드 페이지 관리
+
+**페이지 URL**: `https://mim1012.github.io/UberAutoAccept/download.html`
+
+카톡으로 이 URL 하나만 공유하면 됩니다. 사용자는 전화번호 + 비밀번호로 인증 후 다운로드.
+
+- **비밀번호 변경**: `web/download.html`의 `DOWNLOAD_PASSWORD` 값 수정 후 push
+- **호스팅**: GitHub Pages (Settings → Pages → Branch: `master` / `/web`)
+- **보안**: 전화번호(`uber_users` 테이블 확인) + 공용 비밀번호 이중 체크
+- **signed URL**: 인증 성공 시 5분 유효 다운로드 링크 발급
+
 ### GitHub Secrets
 
 | Secret | 용도 |
@@ -95,7 +113,8 @@ curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/uber_users?select=devi
 | `apks` bucket (private) | APK 파일 저장 (signed URL로만 접근) |
 | `apk_releases` 테이블 | 버전 메타데이터, 파일 경로, changelog |
 | `uber_users` 테이블 | 기기 인증, 하트비트, 상태 |
-| `get_download_url` RPC | 기기 인증 → signed URL 반환 (1시간 유효) |
+| `get_download_url` RPC | 앱 내 업데이트 체크 (device_id 기반, signed URL 5분) |
+| `get_download_url_by_phone` RPC | 웹 다운로드 페이지 (전화번호 기반, signed URL 5분) |
 
 ---
 
