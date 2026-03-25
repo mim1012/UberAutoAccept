@@ -78,12 +78,12 @@ BEGIN
         );
     END IF;
 
-    -- Signed URL 생성 (1시간 유효)
-    SELECT (storage.fns.create_signed_url('apks', v_latest.app_download_path, 3600)).signed_url
+    -- Signed URL 생성 (5분 유효)
+    SELECT (storage.fns.create_signed_url('apks', v_latest.app_download_path, 300)).signed_url
     INTO v_app_signed_url;
 
     IF v_latest.shizuku_download_path IS NOT NULL AND v_latest.shizuku_download_path != '' THEN
-        SELECT (storage.fns.create_signed_url('apks', v_latest.shizuku_download_path, 3600)).signed_url
+        SELECT (storage.fns.create_signed_url('apks', v_latest.shizuku_download_path, 300)).signed_url
         INTO v_shizuku_signed_url;
     END IF;
 
