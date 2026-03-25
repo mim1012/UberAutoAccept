@@ -1,8 +1,10 @@
 package com.uber.autoaccept.ui
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -49,6 +51,8 @@ class SettingsActivity : AppCompatActivity() {
 
         saveButton.setOnClickListener {
             saveSettings()
+            sendBroadcast(Intent("com.uber.autoaccept.RELOAD_CONFIG").setPackage(packageName))
+            Log.i("SettingsActivity", "설정 저장 완료 → RELOAD_CONFIG 브로드캐스트 전송")
             Toast.makeText(this, "설정이 저장되었습니다", Toast.LENGTH_SHORT).show()
             finish()
         }

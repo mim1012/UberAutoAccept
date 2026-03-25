@@ -36,7 +36,7 @@ class FilterEngine(private val settings: FilterSettings) {
             settings.airportKeywords.any { offer.dropoffLocation.contains(it, ignoreCase = true) }
 
         if (!condition1 && !condition2 && !condition3 && !condition4) {
-            val reason = "조건 불충족 (출발: ${offer.pickupLocation} / 도착: ${offer.dropoffLocation})"
+            val reason = "조건 불충족 (출발: ${offer.pickupLocation} / 도착: ${offer.dropoffLocation}) [활성=${settings.enabledConditions}, kw=${settings.pickupKeywords}]"
             Log.w(TAG, "❌ $reason")
             return FilterResult.Rejected(listOf(reason))
         }

@@ -1,6 +1,8 @@
 package com.uber.autoaccept.supabase
 
+import com.uber.autoaccept.BuildConfig
+
 object SupabaseConfig {
-    const val SUPABASE_URL = "https://czqnybgoaeihwvgdtvgn.supabase.co"
-    const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6cW55YmdvYWVpaHd2Z2R0dmduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYxMzMwMTQsImV4cCI6MjA3MTcwOTAxNH0.wRsqkOfg4W4JoyQZWDfzPpWTWGa-sC0yrJgBOTxNIho"
+    val SUPABASE_URL: String = BuildConfig.SUPABASE_URL
+    val SUPABASE_ANON_KEY: String = BuildConfig.SUPABASE_ANON_KEY
 }
