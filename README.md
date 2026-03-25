@@ -1,117 +1,155 @@
 # Uber Auto Accept
 
-Vortex 스타일의 상태 머신 아키텍처를 기반으로 한 Uber 드라이버 자동 콜 수락 Android 애플리케이션입니다.
+Vortex 상태 머신 기반 Uber 드라이버 자동 콜 수락 Android 앱.
+
+## 설치 (사용자용)
+
+**두 개 APK가 한 세트입니다.** 반드시 둘 다 설치해야 정상 동작합니다.
+
+| APK | 역할 | 필수 |
+|-----|------|------|
+| `UberAutoAccept-x.x.x.apk` | 메인 앱 (콜 감지 + 자동 수락) | 필수 |
+| `Shizuku.apk` | 시스템 탭 권한 (수락 버튼 클릭) | 필수 |
+
+### 설치 순서
+
+1. **Shizuku 먼저 설치** → 앱 실행 → "Start via ADB" 또는 "Start via Root"로 활성화
+2. **UberAutoAccept 설치** → 앱 실행 → 인증 → 접근성 서비스 활성화
+3. **Shizuku 권한 허용** — UberAutoAccept가 Shizuku 권한을 요청하면 허용
+
+### Shizuku가 없으면?
+
+`dispatchGesture` 폴백이 동작하지만, Uber 앱이 접근성 제스처를 차단할 수 있어 **수락 실패율이 높아집니다**. Shizuku는 사실상 필수입니다.
+
+---
+
+## 배포 관리 (관리자용)
+
+### 릴리즈 만들기
+
+```bash
+# 1. app/build.gradle에서 버전 올리기
+versionCode 3
+versionName "1.2.0"
+
+# 2. 커밋 + 태그
+git add -A && git commit -m "feat: 새 기능"
+git tag v1.2.0
+git push origin master --tags
+```
+
+태그 push 시 GitHub Actions가 자동으로:
+- Release APK 빌드 (서명됨)
+- 최신 Shizuku APK 다운로드
+- 둘 다 Supabase Storage에 업로드
+- `apk_releases` 테이블에 레코드 삽입
+- GitHub Release 생성 (changelog)
+
+### 릴리즈 확인
+
+```bash
+# GitHub Release 확인
+gh release view v1.2.0
+
+# Supabase에 업로드된 APK 확인
+curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/apk_releases?select=*&order=created_at.desc&limit=3" \
+  -H "apikey: YOUR_SERVICE_KEY" \
+  -H "Authorization: Bearer YOUR_SERVICE_KEY"
+
+# Storage bucket 파일 목록
+curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/storage/v1/object/list/apks" \
+  -H "apikey: YOUR_SERVICE_KEY" \
+  -H "Authorization: Bearer YOUR_SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix":"","limit":100}'
+```
+
+### 사용자 관리
+
+인증된 사용자(`uber_users` 테이블에 등록된 기기)만 APK 다운로드 가능.
+
+```bash
+# 등록된 사용자 목록 확인
+curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/uber_users?select=device_id,phone_number,device_name,app_version,last_heartbeat_at&order=last_heartbeat_at.desc" \
+  -H "apikey: YOUR_SERVICE_KEY" \
+  -H "Authorization: Bearer YOUR_SERVICE_KEY"
+```
+
+앱에서 업데이트 확인 시 `get_download_url(device_id, current_version)` RPC가 호출되며, `uber_users`에 없는 기기는 `allowed: false`를 받아 다운로드 불가.
+
+### GitHub Secrets
+
+| Secret | 용도 |
+|--------|------|
+| `KEYSTORE_BASE64` | Release APK 서명용 keystore (base64) |
+| `KEYSTORE_PASSWORD` | keystore 비밀번호 |
+| `KEY_ALIAS` | 키 별칭 |
+| `KEY_PASSWORD` | 키 비밀번호 |
+| `SUPABASE_URL` | Supabase 프로젝트 URL |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key (Storage 업로드 + DB INSERT) |
+
+### Supabase 구성
+
+| 리소스 | 용도 |
+|--------|------|
+| `apks` bucket (private) | APK 파일 저장 (signed URL로만 접근) |
+| `apk_releases` 테이블 | 버전 메타데이터, 파일 경로, changelog |
+| `uber_users` 테이블 | 기기 인증, 하트비트, 상태 |
+| `get_download_url` RPC | 기기 인증 → signed URL 반환 (1시간 유효) |
+
+---
 
 ## 주요 기능
 
-### 🎯 듀얼 모드 필터링
-- **인천공항 모드**: 도착지가 "인천공항"인 콜을 자동 수락
-- **서울 진입 모드**: 도착지가 "서울"인 콜을 자동 수락
-- **두 모드 모두**: 두 조건 중 하나라도 만족하면 수락
-- **고객 거리 필터**: 1~3km 범위 내 고객만 선택 (사용자 설정 가능)
+### 필터링 (4가지 조건)
 
-### 🏗️ 상태 머신 아키텍처
-Vortex의 검증된 설계 패턴을 따릅니다:
-- **StateMachine**: 상태 전환 관리
-- **StateHandler**: 각 상태별 처리 로직
-- **Main Loop**: 상태 관찰 및 자동 처리
+| 조건 | 출발지 | 도착지 |
+|------|--------|--------|
+| 1 | 키워드 매치 (특별시 등) | 공항 또는 광역시 |
+| 2 | 공항 | 어디든 |
+| 3 | 광역시 | 특별시 |
+| 4 | 어디든 | 공항 |
 
-### 📱 AccessibilityService 기반
-- ViewId 기반 안정적인 화면 파싱
-- 정규식 Fallback 지원
-- 비루팅 환경에서 동작
+Settings에서 개별 ON/OFF 가능. 하나라도 만족하면 수락.
 
-## 프로젝트 구조
+### 수락 전략 (2단계)
 
-```
-app/src/main/java/com/uber/autoaccept/
-├── model/          # 데이터 모델 및 상태 정의
-│   ├── AppState.kt
-│   └── Models.kt
-├── engine/         # 핵심 엔진
-│   ├── StateMachine.kt
-│   └── FilterEngine.kt
-├── state/          # 상태 핸들러
-│   ├── StateHandler.kt
-│   └── StateHandlers.kt
-├── service/        # AccessibilityService
-│   └── UberAccessibilityService.kt
-├── utils/          # 유틸리티
-│   ├── AccessibilityHelper.kt
-│   └── UberOfferParser.kt
-└── ui/             # 사용자 인터페이스
-    ├── MainActivity.kt
-    └── SettingsActivity.kt
-```
+1. **Shizuku AIDL** (기본) — `input tap` 셸 명령 5회 연타. 접근성 제스처 플래그 우회.
+2. **dispatchGesture** (폴백) — Shizuku 미사용 시.
 
-## 상태 흐름
+### 서비스 자동 복구
 
-```
-Idle → Online → OfferDetected → OfferAnalyzing → ReadyToAccept → Accepting → Accepted
-                     ↓                                                           ↓
-                  Error ←────────────────────────────────────────────────────────┘
-                     ↓
-                 Rejected → Online
-```
+| 상황 | 복구 |
+|------|------|
+| Shizuku IPC 실패 | 즉시 재바인딩 |
+| Shizuku binder 종료 | 3초 후 재바인딩 |
+| 프로세스 킬 | SharedPreferences에서 상태 복원 |
 
-## 설치 및 사용
+---
 
-### 1. 빌드
+## 빌드
+
 ```bash
-cd /home/ubuntu/UberAutoAccept
+export JAVA_HOME="D:/Android/jbr"
+
+# Debug
 ./gradlew assembleDebug
+
+# Release (keystore.properties 필요)
+./gradlew assembleRelease
+
+# 테스트
+./gradlew test
 ```
-
-### 2. 설치
-생성된 APK를 Android 기기에 설치합니다:
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
-
-### 3. 설정
-1. 앱을 실행합니다
-2. "서비스 활성화" 버튼을 눌러 접근성 설정으로 이동합니다
-3. "Uber Auto Accept" 서비스를 활성화합니다
-4. "설정" 버튼을 눌러 필터링 모드와 거리 범위를 설정합니다
-
-### 4. 사용
-- Uber 드라이버 앱을 실행하고 온라인 상태로 전환합니다
-- 조건에 맞는 콜이 들어오면 자동으로 수락됩니다
-
-## 핵심 ViewId
-
-APK 리버스 엔지니어링을 통해 추출한 주요 ViewId:
-
-| 요소 | ViewId |
-|------|--------|
-| 출발지 | `uda_details_pickup_address_text_view` |
-| 도착지 | `uda_details_dropoff_address_text_view` |
-| 거리 | `uda_details_distance_text_view` |
-| 소요 시간 | `uda_details_duration_text_view` |
-| 수락 버튼 | `upfront_offer_configurable_details_accept_button` |
 
 ## 기술 스택
 
-- **언어**: Kotlin
-- **최소 SDK**: 26 (Android 8.0)
-- **타겟 SDK**: 34 (Android 14)
-- **주요 라이브러리**:
-  - AndroidX Core KTX
-  - Kotlin Coroutines
-  - Lifecycle Components
-  - Shizuku API (선택적)
-
-## 보안 및 주의사항
-
+- Kotlin 1.9.0 / minSdk 26 / targetSdk 34
+- Shizuku 13.1.5 (AIDL UserService)
+- Supabase (인증 + 로깅 + Storage)
+- OpenCV 4.9.0 (시각적 감지 폴백)
+- Kotlin Coroutines + StateFlow
 
 ## 라이선스
 
 MIT License
-
-## 기여
-
-이슈 및 풀 리퀘스트를 환영합니다.
-
-## 참고
-
-이 프로젝트는 [Vortex](https://github.com/mim1012/Vortex)의 상태 머신 아키텍처를 참고하여 제작되었습니다.
