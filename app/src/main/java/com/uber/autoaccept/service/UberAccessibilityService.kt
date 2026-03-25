@@ -445,17 +445,10 @@ class UberAccessibilityService : AccessibilityService() {
             prefs.edit().putString("device_id", deviceId).apply()
         }
 
-        val pickupKeywords = prefs.getStringSet("pickup_keywords", null)
-            ?.toList()?.filter { it.isNotBlank() }
-            ?.takeIf { it.isNotEmpty() }
-            ?: listOf("특별시")
+        val pickupKeywords = listOf("특별시")
 
-        val enabledConditions = buildSet<Int> {
-            if (prefs.getBoolean("condition1_enabled", true)) add(1)
-            if (prefs.getBoolean("condition2_enabled", true)) add(2)
-            if (prefs.getBoolean("condition3_enabled", true)) add(3)
-            if (prefs.getBoolean("condition4_enabled", true)) add(4)
-        }
+        val selectedCondition = prefs.getInt("selected_condition", 4)
+        val enabledConditions = setOf(selectedCondition)
 
         return AppConfig(
             filterSettings = FilterSettings(
