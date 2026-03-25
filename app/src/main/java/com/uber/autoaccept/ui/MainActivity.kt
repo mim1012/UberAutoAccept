@@ -364,10 +364,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatusCard() {
-        // 접근성 서비스
+        // 접근성 서비스 (시스템 등록 + 실제 동작 여부 둘 다 체크)
         val accessibilityOn = isAccessibilityServiceEnabled()
-        statusAccessibility.text = if (accessibilityOn) "● 접근성 서비스: 활성화" else "● 접근성 서비스: 비활성화"
-        statusAccessibility.setTextColor(if (accessibilityOn) 0xFF4CAF50.toInt() else 0xFFF44336.toInt())
+        val serviceActive = ServiceState.isActive()
+        val accessibilityStatus = when {
+            accessibilityOn && serviceActive -> "● 접근성 서비스: 동작 중"
+            accessibilityOn && !serviceActive -> "● 접근성 서비스: 등록됨 (시작 필요)"
+            else -> "● 접근성 서비스: 비활성화"
+        }
+        val accessibilityColor = when {
+            accessibilityOn && serviceActive -> 0xFF4CAF50.toInt()  // 초록
+            accessibilityOn && !serviceActive -> 0xFFFF9800.toInt() // 주황
+            else -> 0xFFF44336.toInt()  // 빨강
+        }
+        statusAccessibility.text = accessibilityStatus
+        statusAccessibility.setTextColor(accessibilityColor)
 
         // Shizuku
         val shizukuOn = com.uber.autoaccept.utils.ShizukuHelper.hasPermission()

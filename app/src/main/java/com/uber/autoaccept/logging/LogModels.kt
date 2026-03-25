@@ -11,7 +11,8 @@ enum class LogType {
     @SerializedName("viewid_health") VIEWID_HEALTH,
     @SerializedName("lifecycle") LIFECYCLE,
     @SerializedName("heartbeat") HEARTBEAT,
-    @SerializedName("debug") DEBUG
+    @SerializedName("debug") DEBUG,
+    @SerializedName("shizuku") SHIZUKU
 }
 
 /**

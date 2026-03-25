@@ -109,8 +109,13 @@ class UberAccessibilityService : AccessibilityService() {
         Log.i("UAA", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         Log.i("UAA", "[SERVICE] ✅ 접근성 서비스 연결됨")
 
-        // 서비스 활성 상태로 설정 (중요: 접근성 이벤트를 처리하기 위함)
-        ServiceState.start()
+        // ServiceState 초기화 + 프로세스 재시작 시 마지막 상태 복원
+        ServiceState.init(this)
+        val wasRestored = ServiceState.restoreIfNeeded()
+        // 접근성 서비스가 연결된 이상 active 보장
+        if (!ServiceState.isActive()) {
+            ServiceState.start()
+        }
 
         // 설정 로드
         config = loadConfig()
@@ -131,7 +136,16 @@ class UberAccessibilityService : AccessibilityService() {
         RemoteLogger.initialize(this, config.deviceId, config.remoteLoggingEnabled)
         RemoteLogger.currentStateSupplier = { stateMachine.getCurrentState()::class.simpleName ?: "unknown" }
         RemoteLogger.logServiceConnected()
+        if (wasRestored) {
+            RemoteLogger.logRecovery("service_state", "process_restart", true,
+                mapOf("restored_from_prefs" to true))
+        }
         RemoteLogger.flushNow()
+
+        // Shizuku UserService 바인딩
+        if (config.enableShizuku) {
+            com.uber.autoaccept.utils.ShizukuHelper.bindService()
+        }
 
         // OpenCV 초기화
         screenshotManager = ScreenshotManager(this)
@@ -236,10 +250,13 @@ class UberAccessibilityService : AccessibilityService() {
             return
         }
         if (!ServiceState.isActive()) {
-            Log.w("UAA", "[SERVICE] ⚠️ 서비스 비활성 상태 — 이벤트 무시 (pkg=${event.packageName})")
-            Log.d(TAG, "Ignored: service not active")
-            RemoteLogger.logDiagnostic("Service not active")
-            return
+            Log.w("UAA", "[SERVICE] ⚠️ ServiceState 비활성 — 자동 복구 시도")
+            ServiceState.start()
+            config = loadConfig()
+            filterEngine = FilterEngine(config.filterSettings)
+            Log.i("UAA", "[SERVICE] ✅ ServiceState 자동 복구 완료")
+            RemoteLogger.logRecovery("service_state", "event_auto_recover", true,
+                mapOf("event_type" to event.eventType, "package" to (event.packageName ?: "null")))
         }
 
         Log.i(TAG, "✓ Processing accessibility event: type=${event.eventType}")
@@ -457,15 +474,35 @@ class UberAccessibilityService : AccessibilityService() {
     }
     
     override fun onInterrupt() {
-        Log.w(TAG, "서비스 중단됨")
-        Log.e("UAA", "[SERVICE] ❌ 접근성 서비스 강제 중단 (onInterrupt) — 배터리 최적화/권한 확인 필요")
+        Log.w(TAG, "서비스 중단됨 — 복구 시도")
+        Log.e("UAA", "[SERVICE] ❌ 접근성 서비스 강제 중단 (onInterrupt) — 복구 시도 중")
         RemoteLogger.logServiceDisconnected("onInterrupt")
+
+        // ServiceState 유지 — 이벤트 재수신 시 자동 복구되도록
+        // config/filterEngine 재로드하여 stale 상태 방지
+        try {
+            config = loadConfig()
+            filterEngine = FilterEngine(config.filterSettings)
+            Log.i("UAA", "[SERVICE] ✅ onInterrupt 후 config/filterEngine 재로드 완료")
+            RemoteLogger.logRecovery("accessibility", "on_interrupt", true,
+                mapOf("config_reloaded" to true, "shizuku_enabled" to config.enableShizuku))
+        } catch (e: Exception) {
+            Log.e("UAA", "[SERVICE] onInterrupt 복구 실패: ${e.message}")
+            RemoteLogger.logRecovery("accessibility", "on_interrupt", false,
+                mapOf("error" to (e.message ?: "unknown")))
+        }
+
+        // Shizuku 재바인딩 시도
+        if (config.enableShizuku) {
+            com.uber.autoaccept.utils.ShizukuHelper.bindService()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(configReloadReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(testTapReceiver) } catch (_: Exception) {}
+        com.uber.autoaccept.utils.ShizukuHelper.unbindService()
         RemoteLogger.logServiceDisconnected("onDestroy")
         RemoteLogger.shutdown()
         serviceScope.cancel()

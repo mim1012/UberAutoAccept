@@ -1,0 +1,44 @@
+{
+  "projectType": "android-kotlin",
+  "projectName": "UberAutoAccept",
+  "defaultLeads": ["research-lead", "coding-lead", "qa-lead"],
+  "fileOwnership": {
+    "coding-lead": [
+      "app/src/main/java/com/uber/autoaccept/engine/**",
+      "app/src/main/java/com/uber/autoaccept/model/**",
+      "app/src/main/java/com/uber/autoaccept/service/**",
+      "app/src/main/java/com/uber/autoaccept/state/**",
+      "app/src/main/java/com/uber/autoaccept/supabase/**",
+      "app/src/main/java/com/uber/autoaccept/utils/**",
+      "app/src/main/java/com/uber/autoaccept/auth/**",
+      "app/src/main/java/com/uber/autoaccept/logging/**",
+      "app/src/main/AndroidManifest.xml",
+      "app/build.gradle",
+      "build.gradle",
+      "settings.gradle"
+    ],
+    "design-lead": [
+      "app/src/main/java/com/uber/autoaccept/ui/**",
+      "app/src/main/res/layout/**",
+      "app/src/main/res/drawable/**",
+      "app/src/main/res/values/**",
+      "app/src/main/res/xml/**",
+      "**/*.md",
+      "docs/**"
+    ],
+    "qa-lead": [
+      "app/src/test/**",
+      "app/src/androidTest/**",
+      "**/*Test.kt",
+      "**/*Tests.kt"
+    ]
+  },
+  "commands": {
+    "build": "JAVA_HOME=\"D:/Android/jbr\" ./gradlew assembleDebug",
+    "test": "JAVA_HOME=\"D:/Android/jbr\" ./gradlew test",
+    "lint": "JAVA_HOME=\"D:/Android/jbr\" ./gradlew lint",
+    "typeCheck": null
+  },
+  "obsidianPath": null,
+  "createdAt": "2026-03-25T00:00:00Z"
+}
