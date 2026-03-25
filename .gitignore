@@ -1,0 +1,17 @@
+# Build
+*.iml
+.gradle/
+build/
+local.properties
+
+# Signing
+keystore.properties
+*.keystore
+*.jks
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -18,10 +18,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.uber.autoaccept.R
 import com.uber.autoaccept.auth.AuthManager
 import com.uber.autoaccept.service.FloatingWidgetService
 import com.uber.autoaccept.service.ServiceState
+import com.uber.autoaccept.update.UpdateChecker
+import com.uber.autoaccept.update.UpdateDialog
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -149,6 +153,7 @@ class MainActivity : AppCompatActivity() {
                     enableAllInteractions()
                     updateStatus()
                     updateLicenseInfo()
+                    checkForUpdates()
                 }
             }
 
@@ -343,6 +348,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun openAccessibilitySettings() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun checkForUpdates() {
+        lifecycleScope.launch {
+            try {
+                val result = UpdateChecker.check(this@MainActivity)
+                if (result.hasUpdate && result.latestVersion != null) {
+                    UpdateDialog.show(this@MainActivity, result)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "Update check failed: ${e.message}")
+            }
+        }
     }
 
     private fun updateStatusCard() {
