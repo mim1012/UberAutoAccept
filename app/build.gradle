@@ -22,16 +22,38 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField "String", "GITHUB_REPO", '"mim1012/UberAutoAccept"'
+        buildConfigField "String", "SHIZUKU_COMPAT_VERSION", '"13.1.5"'
+        buildConfigField "String", "SUPABASE_URL", "\"${localProps.getProperty('SUPABASE_URL', '')}\""
+        buildConfigField "String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty('SUPABASE_ANON_KEY', '')}\""
+
         ndk {
             abiFilters 'arm64-v8a'
         }
+    }
 
-        buildConfigField "String", "SUPABASE_URL", "\"${localProps.getProperty('SUPABASE_URL', '')}\""
-        buildConfigField "String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty('SUPABASE_ANON_KEY', '')}\""
+    signingConfigs {
+        release {
+            def keystoreFile = rootProject.file("keystore.properties")
+            if (keystoreFile.exists()) {
+                def props = new Properties()
+                props.load(new FileInputStream(keystoreFile))
+                storeFile file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            } else {
+                storeFile rootProject.file(System.getenv("KEYSTORE_PATH") ?: "/dev/null")
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("KEY_ALIAS") ?: ""
+                keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

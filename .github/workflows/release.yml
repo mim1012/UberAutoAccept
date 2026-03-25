@@ -1,0 +1,126 @@
+name: Release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+             UberAutoAccept-${{ steps.version.outputs.VERSION }}.apk
+
+      - name: Download Shizuku APK
+        run: |
+          SHIZUKU_URL=$(curl -s https://api.github.com/repos/rikkaapps/Shizuku/releases/latest \
+            | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' \
+            | head -1)
+          if [ -n "$SHIZUKU_URL" ] && [ "$SHIZUKU_URL" != "null" ]; then
+            curl -L -o Shizuku.apk "$SHIZUKU_URL"
+            echo "SHIZUKU_DOWNLOADED=true" >> $GITHUB_ENV
+          else
+            echo "SHIZUKU_DOWNLOADED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Upload APK to Supabase Storage
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+
+          # Upload app APK
+          curl -X POST \
+            "${SUPABASE_URL}/storage/v1/object/apks/UberAutoAccept-${VERSION}.apk" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --data-binary @UberAutoAccept-${VERSION}.apk
+
+          # Upload Shizuku APK (if downloaded)
+          if [ "$SHIZUKU_DOWNLOADED" = "true" ]; then
+            curl -X POST \
+              "${SUPABASE_URL}/storage/v1/object/apks/Shizuku.apk" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              -H "Content-Type: application/vnd.android.package-archive" \
+              --data-binary @Shizuku.apk
+          fi
+
+      - name: Insert release record to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          CHANGELOG=$(git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "HEAD~20")..HEAD --no-merges | head -20)
+
+          SHIZUKU_PATH=""
+          if [ "$SHIZUKU_DOWNLOADED" = "true" ]; then
+            SHIZUKU_PATH="Shizuku.apk"
+          fi
+
+          curl -X POST \
+            "${SUPABASE_URL}/rest/v1/apk_releases" \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{
+              \"version_name\": \"${VERSION}\",
+              \"version_code\": $(echo $VERSION | tr '.' '\n' | head -1),
+              \"app_download_path\": \"UberAutoAccept-${VERSION}.apk\",
+              \"shizuku_download_path\": \"${SHIZUKU_PATH}\",
+              \"shizuku_version\": \"12.2.0\",
+              \"changelog\": $(echo "$CHANGELOG" | jq -Rs .)
+            }"
+
+      - name: Generate changelog file
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            git log --oneline ${PREV_TAG}..HEAD --no-merges > changelog.txt
+          else
+            git log --oneline -20 --no-merges > changelog.txt
+          fi
+
+      - name: Create GitHub Release (changelog only)
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "UberAutoAccept ${{ steps.version.outputs.VERSION }}"
+          body_path: changelog.txt

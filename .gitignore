@@ -1,21 +1,17 @@
+# Build
 *.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-keystore.properties
-*.jks
-*.keystore
-
-# Build outputs
-app/build/
+.gradle/
 build/
+local.properties
+
+# Signing
+keystore.properties
+*.keystore
+*.jks
+
+# IDE
+.idea/
 
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db

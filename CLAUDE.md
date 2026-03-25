@@ -11,6 +11,9 @@ export JAVA_HOME="D:/Android/jbr"
 # Build debug APK
 ./gradlew assembleDebug
 
+# Build release APK (requires keystore.properties or env vars)
+./gradlew assembleRelease
+
 # Install on connected device
 adb install app/build/outputs/apk/debug/app-debug.apk
 
@@ -22,6 +25,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 # Clean build
 ./gradlew clean
+
+# Create a release (triggers CI/CD pipeline)
+git tag v1.1.0 && git push origin v1.1.0
 ```
 
 ## Architecture
@@ -61,7 +67,8 @@ Idle → Online → OfferDetected → OfferAnalyzing
 - **`logging/RemoteLogger.kt`** — Batches log entries (max 200), flushes to Supabase `uber_logs` every 10s. Heartbeat to `uber_users` every 60s. Recovery events flush immediately.
 - **`auth/`** — `AuthManager` calls `check_license` Supabase RPC. Caches 24h. Prefs key: `twinme_auth`.
 - **`supabase/`** — `SupabaseClient` (plain HTTP REST/RPC) and `SupabaseConfig` (URL + anon key).
-- **`ui/`** — `MainActivity` (service status with 3-state indicator, auth gate), `SettingsActivity` (filter mode, per-condition ON/OFF, distance range).
+- **`update/`** — `UpdateChecker` (Supabase RPC `get_download_url` with 24h cache), `UpdateDialog` (AlertDialog with download links), `UpdateModels` (data classes).
+- **`ui/`** — `MainActivity` (service status with 3-state indicator, auth gate, auto update check), `SettingsActivity` (filter mode, per-condition ON/OFF, distance range, version info, manual update check).
 
 ### Accept Click Strategy (two-tier)
 
@@ -109,13 +116,39 @@ Heartbeat includes: `service_active`, `shizuku_bound`, `shizuku_available`, `cur
 
 These are for parsing only; actual click target is the user-placed ⊕ coordinate.
 
+### Update System
+
+The app checks for updates via Supabase RPC `get_download_url`. Only devices registered in `uber_users` table receive signed download URLs (1-hour expiry). Flow:
+
+1. **Auto check**: `MainActivity` calls `UpdateChecker.check()` after successful auth (24h cache).
+2. **Manual check**: Settings → "업데이트 확인" button (`forceCheck = true`).
+3. **Server-side**: `get_download_url(device_id, current_version)` → checks `uber_users` → queries `apk_releases` → returns signed Supabase Storage URLs.
+4. **Download**: `ACTION_VIEW` intent opens browser to signed URL.
+
+### CI/CD Pipeline
+
+- **`build.yml`**: Triggers on push to master. Builds debug APK, uploads as artifact (30-day retention).
+- **`release.yml`**: Triggers on `v*` tag push. Builds signed release APK, downloads latest Shizuku APK from rikkaapps/Shizuku, uploads both to Supabase Storage `apks` bucket, inserts record in `apk_releases` table, creates GitHub Release with changelog.
+
+**Required GitHub Secrets**: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
+
+### Supabase Backend
+
+| Table | Purpose |
+|-------|---------|
+| `uber_users` | Device registration, heartbeat state (UPSERT on `device_id`) |
+| `uber_logs` | Unified log table (parse, action, viewid_health, lifecycle, debug) |
+| `apk_releases` | Version metadata, APK paths in Storage, changelog |
+
+Key RPC functions: `check_license` (auth), `get_download_url` (update check with signed URLs).
+
 ## Tech Stack
 
 - **Language:** Kotlin 1.9.0
 - **Android:** minSdk 26, targetSdk 34, compileSdk 34
 - **Build:** Gradle 8.7, AGP 8.1.0, AIDL enabled, BuildConfig enabled
 - **Async:** Kotlin Coroutines (Main/IO) + StateFlow
-- **External:** Shizuku 13.1.5 (AIDL UserService), Supabase (auth + logging), OpenCV (button detection), Gson
+- **External:** Shizuku 13.1.5 (AIDL UserService), Supabase (auth + logging + storage), OpenCV (button detection), Gson
 
 ## Conventions
 
@@ -128,3 +161,6 @@ These are for parsing only; actual click target is the user-placed ⊕ coordinat
 - `RemoteLogger.initialize()` before use; `shutdown()` on service destroy.
 - `ServiceState.init(context)` must be called in both `UberAccessibilityService` and `FloatingWidgetService`.
 - Shizuku rebind calls must include a trigger string for log traceability.
+- Supabase HTTP calls follow `SupabaseClient` patterns: `HttpURLConnection` + Gson + `Dispatchers.IO`. New RPC calls should use `rpcPost()`.
+- Release signing: `keystore.properties` (local) or env vars `KEYSTORE_PATH`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD` (CI).
+- Version management: single source of truth in `app/build.gradle` (`versionCode`, `versionName`). Exposed via `BuildConfig.VERSION_NAME`.
