@@ -4,7 +4,7 @@ Vortex 상태 머신 기반 Uber 드라이버 자동 콜 수락 Android 앱.
 
 ## 다운로드 (사용자용)
 
-**다운로드 페이지**: https://mim1012.github.io/UberAutoAccept/download.html
+**다운로드 페이지**: https://uber-download.pages.dev/download.html
 
 1. 위 링크 접속 (카톡으로 공유받은 링크)
 2. **등록된 전화번호** + **비밀번호** 입력
@@ -86,7 +86,7 @@ curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/uber_users?select=devi
 
 ### 다운로드 페이지 관리
 
-**페이지 URL**: `https://mim1012.github.io/UberAutoAccept/download.html`
+**페이지 URL**: `https://uber-download.pages.dev/download.html`
 
 카톡으로 이 URL 하나만 공유하면 됩니다. 사용자는 전화번호 + 비밀번호로 인증 후 다운로드.
 
