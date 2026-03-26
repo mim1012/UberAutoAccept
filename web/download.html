@@ -31,6 +31,7 @@ button:hover:not(:disabled) { background: #c73650; }
 <div class="card">
   <h1>UberAutoAccept</h1>
   <p class="subtitle">인증된 사용자만 다운로드 가능합니다</p>
+  <p class="subtitle" id="version-info" style="color:#4CAF50; font-size:14px; margin-top:8px;">버전 확인 중...</p>
 
   <div id="auth-form">
     <label>전화번호</label>
@@ -139,6 +140,23 @@ async function verify() {
 document.getElementById('password').addEventListener('keyup', function(e) {
   if (e.key === 'Enter') verify();
 });
+
+// 페이지 로드 시 최신 버전 표시
+(async function loadVersion() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/apk_releases?order=created_at.desc&limit=1&select=version_name,created_at`, {
+      headers: { 'apikey': SUPABASE_ANON_KEY }
+    });
+    const data = await res.json();
+    if (data.length > 0) {
+      const v = data[0].version_name;
+      const date = new Date(data[0].created_at).toLocaleDateString('ko-KR');
+      document.getElementById('version-info').textContent = `최신 버전: v${v} (${date})`;
+    }
+  } catch (e) {
+    document.getElementById('version-info').textContent = '';
+  }
+})();
 </script>
 </body>
 </html>
