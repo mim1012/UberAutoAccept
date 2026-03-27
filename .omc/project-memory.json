@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1772134202929,
+  "lastScanned": 1774584734488,
   "projectRoot": "D:\\Project\\UberAutoAccept",
   "techStack": {
     "languages": [
@@ -46,90 +46,78 @@
     "app": {
       "path": "app",
       "purpose": "Application code",
-      "fileCount": 1,
-      "lastAccessed": 1772134202745,
+      "fileCount": 2,
+      "lastAccessed": 1774584734396,
       "keyFiles": [
-        "build.gradle"
+        "build.gradle",
+        "proguard-rules.pro"
       ]
     },
     "gradle": {
       "path": "gradle",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1772134202746,
+      "lastAccessed": 1774584734398,
       "keyFiles": []
     },
     "supabase": {
       "path": "supabase",
       "purpose": null,
-      "fileCount": 1,
-      "lastAccessed": 1772134202748,
+      "fileCount": 3,
+      "lastAccessed": 1774584734399,
       "keyFiles": [
-        "schema.sql"
+        "add_phone_download.sql",
+        "schema.sql",
+        "setup.sql"
+      ]
+    },
+    "web": {
+      "path": "web",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1774584734400,
+      "keyFiles": [
+        "download.html"
       ]
     },
     "app\\build": {
       "path": "app\\build",
       "purpose": "Build output",
       "fileCount": 0,
-      "lastAccessed": 1772134202749,
+      "lastAccessed": 1774584734400,
       "keyFiles": []
     },
     "app\\src": {
       "path": "app\\src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1772134202750,
+      "lastAccessed": 1774584734401,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
+      "path": "app\\src",
+      "accessCount": 3,
+      "lastAccessed": 1774587027131,
+      "type": "directory"
+    },
+    {
       "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\service\\UberAccessibilityService.kt",
-      "accessCount": 7,
-      "lastAccessed": 1772136046047,
+      "accessCount": 2,
+      "lastAccessed": 1774587053880,
       "type": "file"
+    },
+    {
+      "path": "app\\src\\main\\java\\com\\uber\\autoaccept",
+      "accessCount": 2,
+      "lastAccessed": 1774588196031,
+      "type": "directory"
     },
     {
       "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\logging\\RemoteLogger.kt",
-      "accessCount": 5,
-      "lastAccessed": 1772136528345,
-      "type": "file"
-    },
-    {
-      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\logging\\LogModels.kt",
-      "accessCount": 3,
-      "lastAccessed": 1772136524705,
-      "type": "file"
-    },
-    {
-      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\engine\\FilterEngine.kt",
       "accessCount": 1,
-      "lastAccessed": 1772134723762,
-      "type": "file"
-    },
-    {
-      "path": "app\\src\\main\\java\\com\\uber\\autoaccept\\model\\Models.kt",
-      "accessCount": 1,
-      "lastAccessed": 1772134727293,
-      "type": "file"
-    },
-    {
-      "path": "app\\src\\main\\AndroidManifest.xml",
-      "accessCount": 1,
-      "lastAccessed": 1772135437349,
-      "type": "file"
-    },
-    {
-      "path": "app\\src\\main\\res\\xml\\accessibility_service_config.xml",
-      "accessCount": 1,
-      "lastAccessed": 1772135440315,
-      "type": "file"
-    },
-    {
-      "path": "gradle\\wrapper\\gradle-wrapper.properties",
-      "accessCount": 1,
-      "lastAccessed": 1772136801220,
+      "lastAccessed": 1774587034465,
       "type": "file"
     }
   ],

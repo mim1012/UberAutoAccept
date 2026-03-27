@@ -62,4 +62,17 @@
             android:minHeight="0dp" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/floating_test_btn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="TEST"
+        android:textSize="11sp"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#FF9800"
+        android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:layout_marginTop="4dp" />
+
 </LinearLayout>

@@ -316,9 +316,6 @@ object RemoteLogger {
                 "os_version" to Build.VERSION.RELEASE,
                 "app_version" to appVersion,
                 "filter_mode" to filterMode,
-                "service_active" to com.uber.autoaccept.service.ServiceState.isActive(),
-                "shizuku_bound" to com.uber.autoaccept.utils.ShizukuHelper.isServiceBound(),
-                "shizuku_available" to com.uber.autoaccept.utils.ShizukuHelper.isAvailable(),
                 "updated_at" to now
             )
             SupabaseClient.restUpsert("uber_users", row, SupabaseConfig.SUPABASE_ANON_KEY, onConflict = "device_id")

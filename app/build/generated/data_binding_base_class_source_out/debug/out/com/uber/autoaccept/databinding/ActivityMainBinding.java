@@ -33,16 +33,34 @@ public final class ActivityMainBinding implements ViewBinding {
   public final Button startStopButton;
 
   @NonNull
+  public final TextView statusAccessibility;
+
+  @NonNull
+  public final LinearLayout statusCard;
+
+  @NonNull
+  public final TextView statusRemoteLogging;
+
+  @NonNull
+  public final TextView statusShizuku;
+
+  @NonNull
   public final TextView statusText;
 
   private ActivityMainBinding(@NonNull LinearLayout rootView, @NonNull Button enableButton,
       @NonNull TextView licenseText, @NonNull Button settingsButton,
-      @NonNull Button startStopButton, @NonNull TextView statusText) {
+      @NonNull Button startStopButton, @NonNull TextView statusAccessibility,
+      @NonNull LinearLayout statusCard, @NonNull TextView statusRemoteLogging,
+      @NonNull TextView statusShizuku, @NonNull TextView statusText) {
     this.rootView = rootView;
     this.enableButton = enableButton;
     this.licenseText = licenseText;
     this.settingsButton = settingsButton;
     this.startStopButton = startStopButton;
+    this.statusAccessibility = statusAccessibility;
+    this.statusCard = statusCard;
+    this.statusRemoteLogging = statusRemoteLogging;
+    this.statusShizuku = statusShizuku;
     this.statusText = statusText;
   }
 
@@ -97,6 +115,30 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.status_accessibility;
+      TextView statusAccessibility = ViewBindings.findChildViewById(rootView, id);
+      if (statusAccessibility == null) {
+        break missingId;
+      }
+
+      id = R.id.status_card;
+      LinearLayout statusCard = ViewBindings.findChildViewById(rootView, id);
+      if (statusCard == null) {
+        break missingId;
+      }
+
+      id = R.id.status_remote_logging;
+      TextView statusRemoteLogging = ViewBindings.findChildViewById(rootView, id);
+      if (statusRemoteLogging == null) {
+        break missingId;
+      }
+
+      id = R.id.status_shizuku;
+      TextView statusShizuku = ViewBindings.findChildViewById(rootView, id);
+      if (statusShizuku == null) {
+        break missingId;
+      }
+
       id = R.id.status_text;
       TextView statusText = ViewBindings.findChildViewById(rootView, id);
       if (statusText == null) {
@@ -104,7 +146,8 @@ public final class ActivityMainBinding implements ViewBinding {
       }
 
       return new ActivityMainBinding((LinearLayout) rootView, enableButton, licenseText,
-          settingsButton, startStopButton, statusText);
+          settingsButton, startStopButton, statusAccessibility, statusCard, statusRemoteLogging,
+          statusShizuku, statusText);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

@@ -231,6 +231,7 @@ attr buttonStyle
 attr buttonStyleSmall
 attr buttonTint
 attr buttonTintMode
+attr camera_id
 attr cardBackgroundColor
 attr cardCornerRadius
 attr cardElevation
@@ -1042,6 +1043,7 @@ attr showMotionSpec
 attr showPaths
 attr showText
 attr showTitle
+attr show_fps
 attr shrinkMotionSpec
 attr sideSheetDialogTheme
 attr sideSheetModalStyle
@@ -3073,6 +3075,7 @@ drawable notification_template_icon_bg
 drawable notification_template_icon_low_bg
 drawable notification_tile_bg
 drawable notify_panel_notification_icon_bg
+drawable target_circle_bg
 drawable test_level_drawable
 drawable tooltip_frame_dark
 drawable tooltip_frame_light
@@ -3158,6 +3161,8 @@ id animateToEnd
 id animateToStart
 id antiClockwise
 id anticipate
+id any
+id app_version_text
 id arc
 id asConfigured
 id async
@@ -3165,6 +3170,7 @@ id auto
 id autoComplete
 id autoCompleteToEnd
 id autoCompleteToStart
+id back
 id barrier
 id baseline
 id beginOnFirstDraw
@@ -3189,6 +3195,7 @@ id center_vertical
 id chain
 id chain2
 id chains
+id check_update_button
 id checkbox
 id checked
 id chronometer
@@ -3200,6 +3207,11 @@ id clockwise
 id closest
 id collapseActionView
 id compress
+id condition1_radio
+id condition2_radio
+id condition3_radio
+id condition4_radio
+id condition_radio_group
 id confirm_button
 id constraint
 id container
@@ -3279,8 +3291,10 @@ id floating_close_btn
 id floating_start_btn
 id floating_status
 id floating_stop_btn
+id floating_test_btn
 id forever
 id fragment_container_view_tag
+id front
 id frost
 id fullscreen_header
 id ghost_view
@@ -3355,7 +3369,6 @@ id matrix
 id message
 id middle
 id mini
-id mode_spinner
 id month_grid
 id month_navigation_bar
 id month_navigation_fragment_toggle
@@ -3481,11 +3494,10 @@ id search_voice_btn
 id select_dialog_listview
 id selected
 id selection_type
-id seoul_distance_seekbar
-id seoul_distance_text
 id settings_button
 id sharedValueSet
 id sharedValueUnset
+id shizuku_status_text
 id shortcut
 id showCustom
 id showHome
@@ -3518,6 +3530,10 @@ id startVertical
 id start_stop_button
 id staticLayout
 id staticPostLayout
+id status_accessibility
+id status_card
+id status_remote_logging
+id status_shizuku
 id status_text
 id stop
 id stretch
@@ -3538,6 +3554,7 @@ id tag_transition_group
 id tag_unhandled_key_event_manager
 id tag_unhandled_key_listeners
 id tag_window_insets_animation_callback
+id target_icon
 id text
 id text2
 id textEnd
@@ -3726,6 +3743,7 @@ layout design_navigation_menu
 layout design_navigation_menu_item
 layout design_text_input_end_icon
 layout design_text_input_start_icon
+layout floating_target
 layout floating_widget
 layout ime_base_split_test_activity
 layout ime_secondary_split_test_activity
@@ -5101,6 +5119,7 @@ styleable BottomAppBar addElevationShadow backgroundTint elevation fabAlignmentM
 styleable BottomNavigationView android_minHeight compatShadowEnabled itemHorizontalTranslationEnabled shapeAppearance shapeAppearanceOverlay
 styleable BottomSheetBehavior_Layout android_maxWidth android_maxHeight android_elevation backgroundTint behavior_draggable behavior_expandedOffset behavior_fitToContents behavior_halfExpandedRatio behavior_hideable behavior_peekHeight behavior_saveFlags behavior_significantVelocityThreshold behavior_skipCollapsed gestureInsetBottomIgnored marginLeftSystemWindowInsets marginRightSystemWindowInsets marginTopSystemWindowInsets paddingBottomSystemWindowInsets paddingLeftSystemWindowInsets paddingRightSystemWindowInsets paddingTopSystemWindowInsets shapeAppearance shapeAppearanceOverlay shouldRemoveExpandedCorners
 styleable ButtonBarLayout allowStacking
+styleable CameraBridgeViewBase camera_id show_fps
 styleable Capability queryPatterns shortcutMatchRequired
 styleable CardView android_minWidth android_minHeight cardBackgroundColor cardCornerRadius cardElevation cardMaxElevation cardPreventCornerOverlap cardUseCompatPadding contentPadding contentPaddingBottom contentPaddingLeft contentPaddingRight contentPaddingTop
 styleable Carousel carousel_alignment carousel_backwardTransition carousel_emptyViewsBehavior carousel_firstView carousel_forwardTransition carousel_infinite carousel_nextState carousel_previousState carousel_touchUpMode carousel_touchUp_dampeningFactor carousel_touchUp_velocityThreshold

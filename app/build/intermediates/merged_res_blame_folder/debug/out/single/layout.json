@@ -1,18 +1,26 @@
 [
     {
-        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_login.xml",
-        "source": "com.uber.autoaccept.app-main-36:/layout/activity_login.xml"
+        "merged": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-mergeDebugResources-34:\\layout\\floating_widget.xml",
+        "source": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-main-37:\\layout\\floating_widget.xml"
     },
     {
-        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/floating_widget.xml",
-        "source": "com.uber.autoaccept.app-main-36:/layout/floating_widget.xml"
+        "merged": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-mergeDebugResources-34:\\layout\\activity_login.xml",
+        "source": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-main-37:\\layout\\activity_login.xml"
     },
     {
-        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_settings.xml",
-        "source": "com.uber.autoaccept.app-main-36:/layout/activity_settings.xml"
+        "merged": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-mergeDebugResources-34:\\layout\\activity_settings.xml",
+        "source": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-main-37:\\layout\\activity_settings.xml"
     },
     {
-        "merged": "com.uber.autoaccept.app-mergeDebugResources-33:/layout/activity_main.xml",
-        "source": "com.uber.autoaccept.app-main-36:/layout/activity_main.xml"
+        "merged": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-mergeDebugResources-34:\\layout\\activity_main.xml",
+        "source": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-main-37:\\layout\\activity_main.xml"
+    },
+    {
+        "merged": "com.uber.autoaccept.app-mergeDebugResources-34:/layout/activity_settings.xml",
+        "source": "com.uber.autoaccept.app-main-37:/layout/activity_settings.xml"
+    },
+    {
+        "merged": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-mergeDebugResources-34:\\layout\\floating_target.xml",
+        "source": "C:\\Users\\PC_1M\\.gradle\\daemon\\8.7\\com.uber.autoaccept.app-main-37:\\layout\\floating_target.xml"
     }
 ]

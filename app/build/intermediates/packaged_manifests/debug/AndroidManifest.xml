@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.uber.autoaccept"
-    android:versionCode="1"
-    android:versionName="1.0.0" >
+    android:versionCode="4"
+    android:versionName="1.2.1" >
 
     <uses-sdk
         android:minSdkVersion="26"
@@ -68,6 +68,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating_overlay_control" />
         </service>
+
+        <!-- Shizuku Provider -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="com.uber.autoaccept.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!-- Accessibility Service -->
         <service

@@ -5,9 +5,10 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
-import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
@@ -30,7 +31,25 @@ public final class ActivitySettingsBinding implements ViewBinding {
   public final TextView airportDistanceText;
 
   @NonNull
-  public final Spinner modeSpinner;
+  public final TextView appVersionText;
+
+  @NonNull
+  public final Button checkUpdateButton;
+
+  @NonNull
+  public final RadioButton condition1Radio;
+
+  @NonNull
+  public final RadioButton condition2Radio;
+
+  @NonNull
+  public final RadioButton condition3Radio;
+
+  @NonNull
+  public final RadioButton condition4Radio;
+
+  @NonNull
+  public final RadioGroup conditionRadioGroup;
 
   @NonNull
   public final Switch remoteLoggingSwitch;
@@ -39,23 +58,28 @@ public final class ActivitySettingsBinding implements ViewBinding {
   public final Button saveButton;
 
   @NonNull
-  public final SeekBar seoulDistanceSeekbar;
-
-  @NonNull
-  public final TextView seoulDistanceText;
+  public final TextView shizukuStatusText;
 
   private ActivitySettingsBinding(@NonNull ScrollView rootView,
       @NonNull SeekBar airportDistanceSeekbar, @NonNull TextView airportDistanceText,
-      @NonNull Spinner modeSpinner, @NonNull Switch remoteLoggingSwitch, @NonNull Button saveButton,
-      @NonNull SeekBar seoulDistanceSeekbar, @NonNull TextView seoulDistanceText) {
+      @NonNull TextView appVersionText, @NonNull Button checkUpdateButton,
+      @NonNull RadioButton condition1Radio, @NonNull RadioButton condition2Radio,
+      @NonNull RadioButton condition3Radio, @NonNull RadioButton condition4Radio,
+      @NonNull RadioGroup conditionRadioGroup, @NonNull Switch remoteLoggingSwitch,
+      @NonNull Button saveButton, @NonNull TextView shizukuStatusText) {
     this.rootView = rootView;
     this.airportDistanceSeekbar = airportDistanceSeekbar;
     this.airportDistanceText = airportDistanceText;
-    this.modeSpinner = modeSpinner;
+    this.appVersionText = appVersionText;
+    this.checkUpdateButton = checkUpdateButton;
+    this.condition1Radio = condition1Radio;
+    this.condition2Radio = condition2Radio;
+    this.condition3Radio = condition3Radio;
+    this.condition4Radio = condition4Radio;
+    this.conditionRadioGroup = conditionRadioGroup;
     this.remoteLoggingSwitch = remoteLoggingSwitch;
     this.saveButton = saveButton;
-    this.seoulDistanceSeekbar = seoulDistanceSeekbar;
-    this.seoulDistanceText = seoulDistanceText;
+    this.shizukuStatusText = shizukuStatusText;
   }
 
   @Override
@@ -97,9 +121,45 @@ public final class ActivitySettingsBinding implements ViewBinding {
         break missingId;
       }
 
-      id = R.id.mode_spinner;
-      Spinner modeSpinner = ViewBindings.findChildViewById(rootView, id);
-      if (modeSpinner == null) {
+      id = R.id.app_version_text;
+      TextView appVersionText = ViewBindings.findChildViewById(rootView, id);
+      if (appVersionText == null) {
+        break missingId;
+      }
+
+      id = R.id.check_update_button;
+      Button checkUpdateButton = ViewBindings.findChildViewById(rootView, id);
+      if (checkUpdateButton == null) {
+        break missingId;
+      }
+
+      id = R.id.condition1_radio;
+      RadioButton condition1Radio = ViewBindings.findChildViewById(rootView, id);
+      if (condition1Radio == null) {
+        break missingId;
+      }
+
+      id = R.id.condition2_radio;
+      RadioButton condition2Radio = ViewBindings.findChildViewById(rootView, id);
+      if (condition2Radio == null) {
+        break missingId;
+      }
+
+      id = R.id.condition3_radio;
+      RadioButton condition3Radio = ViewBindings.findChildViewById(rootView, id);
+      if (condition3Radio == null) {
+        break missingId;
+      }
+
+      id = R.id.condition4_radio;
+      RadioButton condition4Radio = ViewBindings.findChildViewById(rootView, id);
+      if (condition4Radio == null) {
+        break missingId;
+      }
+
+      id = R.id.condition_radio_group;
+      RadioGroup conditionRadioGroup = ViewBindings.findChildViewById(rootView, id);
+      if (conditionRadioGroup == null) {
         break missingId;
       }
 
@@ -115,21 +175,16 @@ public final class ActivitySettingsBinding implements ViewBinding {
         break missingId;
       }
 
-      id = R.id.seoul_distance_seekbar;
-      SeekBar seoulDistanceSeekbar = ViewBindings.findChildViewById(rootView, id);
-      if (seoulDistanceSeekbar == null) {
-        break missingId;
-      }
-
-      id = R.id.seoul_distance_text;
-      TextView seoulDistanceText = ViewBindings.findChildViewById(rootView, id);
-      if (seoulDistanceText == null) {
+      id = R.id.shizuku_status_text;
+      TextView shizukuStatusText = ViewBindings.findChildViewById(rootView, id);
+      if (shizukuStatusText == null) {
         break missingId;
       }
 
       return new ActivitySettingsBinding((ScrollView) rootView, airportDistanceSeekbar,
-          airportDistanceText, modeSpinner, remoteLoggingSwitch, saveButton, seoulDistanceSeekbar,
-          seoulDistanceText);
+          airportDistanceText, appVersionText, checkUpdateButton, condition1Radio, condition2Radio,
+          condition3Radio, condition4Radio, conditionRadioGroup, remoteLoggingSwitch, saveButton,
+          shizukuStatusText);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

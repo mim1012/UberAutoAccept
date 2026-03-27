@@ -9,48 +9,11 @@
         android:orientation="vertical"
         android:padding="24dp">
 
+        <!-- 최대 고객 거리 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="필터링 모드"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
-
-        <Spinner
-            android:id="@+id/mode_spinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp" />
-
-        <!-- 시나리오 1: 서울 출발 → 인천공항 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="서울 출발 → 인천공항 (고객 거리)"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:id="@+id/seoul_distance_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="최대 고객 거리: 3.0 km"
-            android:textSize="14sp"
-            android:layout_marginBottom="4dp" />
-
-        <SeekBar
-            android:id="@+id/seoul_distance_seekbar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp" />
-
-        <!-- 시나리오 2: 인천공항 출발 → 전체 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="인천공항 출발 → 모든 콜 (고객 거리)"
+            android:text="최대 고객 거리"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
@@ -59,7 +22,7 @@
             android:id="@+id/airport_distance_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="최대 고객 거리: 7.0 km"
+            android:text="최대 고객 거리: 5.0 km"
             android:textSize="14sp"
             android:layout_marginBottom="4dp" />
 
@@ -68,6 +31,74 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="32dp" />
+
+        <!-- 수락 조건 섹션 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="수락 조건"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="하나의 조건을 선택하세요"
+            android:textSize="12sp"
+            android:textColor="#666666"
+            android:layout_marginBottom="12dp" />
+
+        <RadioGroup
+            android:id="@+id/condition_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp">
+
+            <RadioButton
+                android:id="@+id/condition1_radio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="서울출발 → 공항 또는 서울행"
+                android:textSize="14sp"
+                android:layout_marginBottom="4dp" />
+
+            <RadioButton
+                android:id="@+id/condition2_radio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="인천공항출발 → 어디든"
+                android:textSize="14sp"
+                android:layout_marginBottom="4dp" />
+
+            <RadioButton
+                android:id="@+id/condition3_radio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="광역시출발 → 특별시행"
+                android:textSize="14sp"
+                android:layout_marginBottom="4dp" />
+
+            <RadioButton
+                android:id="@+id/condition4_radio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="어디서든 → 인천공항행"
+                android:textSize="14sp" />
+
+        </RadioGroup>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginBottom="16dp" />
 
         <!-- 원격 로깅 섹션 -->
         <View
@@ -109,7 +140,46 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="저장"
-            android:textSize="16sp" />
+            android:textSize="16sp"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 앱 정보 섹션 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="앱 정보"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/app_version_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="앱 버전: -"
+            android:textSize="14sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/shizuku_status_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Shizuku: -"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/check_update_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="업데이트 확인"
+            android:textSize="14sp" />
 
     </LinearLayout>
 

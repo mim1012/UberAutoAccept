@@ -1,9 +1,24 @@
 -- Merging decision tree log ---
+provider#rikka.shizuku.ShizukuProvider
+INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:58:9-64:82
+	android:enabled
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:62:13-35
+	android:authorities
+		INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:60:13-59
+	android:multiprocess
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:61:13-41
+	android:exported
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:63:13-36
+	android:permission
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:64:13-79
+	android:name
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:59:13-57
 manifest
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-72:12
-INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-72:12
-INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-72:12
-INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-72:12
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-81:12
+INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-81:12
+INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-81:12
+INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:2:1-81:12
 MERGED from [androidx.databinding:viewbinding:8.1.0] C:\Users\PC_1M\.gradle\caches\transforms-4\f4be782ddc14379f714bb9f620433ddf\transformed\jetified-viewbinding-8.1.0\AndroidManifest.xml:2:1-7:12
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\PC_1M\.gradle\caches\transforms-4\d6f3ed9c21e09b5eb64230e8d93e93e9\transformed\material-1.11.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\PC_1M\.gradle\caches\transforms-4\5773ab5e76214bac7db400cbd0373ccd\transformed\constraintlayout-2.1.4\AndroidManifest.xml:2:1-11:12
@@ -37,6 +52,7 @@ MERGED from [androidx.core:core:1.12.0] C:\Users\PC_1M\.gradle\caches\transforms
 MERGED from [androidx.lifecycle:lifecycle-runtime:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\1a4f7b3a58c97db56ea0c36962b731f2\transformed\lifecycle-runtime-2.7.0\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.lifecycle:lifecycle-service:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\8b11547ad229dbc38f2bd050cc894e12\transformed\jetified-lifecycle-service-2.7.0\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.lifecycle:lifecycle-runtime-ktx:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\3afb07d133aea1ebc72d02ed5a17e2e5\transformed\jetified-lifecycle-runtime-ktx-2.7.0\AndroidManifest.xml:17:1-22:12
+MERGED from [org.opencv:opencv:4.9.0] C:\Users\PC_1M\.gradle\caches\transforms-4\6a53dec3cdaa77fd0a26ee9743c94e33\transformed\jetified-opencv-4.9.0\AndroidManifest.xml:2:1-9:12
 MERGED from [dev.rikka.shizuku:provider:13.1.5] C:\Users\PC_1M\.gradle\caches\transforms-4\49ce50c0fac81b067ed8878cf7ce8fa2\transformed\jetified-provider-13.1.5\AndroidManifest.xml:2:1-16:12
 MERGED from [dev.rikka.shizuku:api:13.1.5] C:\Users\PC_1M\.gradle\caches\transforms-4\7723a9e46e9235a5045d4097c394e763\transformed\jetified-api-13.1.5\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\PC_1M\.gradle\caches\transforms-4\b88a87a08fd46d8ab922e1a850858c92\transformed\cursoradapter-1.0.0\AndroidManifest.xml:17:1-22:12
@@ -106,8 +122,8 @@ ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:20:5-77
 	android:name
 		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:20:22-74
 application
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:22:5-70:19
-INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:22:5-70:19
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:22:5-79:19
+INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:22:5-79:19
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\PC_1M\.gradle\caches\transforms-4\d6f3ed9c21e09b5eb64230e8d93e93e9\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\PC_1M\.gradle\caches\transforms-4\d6f3ed9c21e09b5eb64230e8d93e93e9\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\PC_1M\.gradle\caches\transforms-4\5773ab5e76214bac7db400cbd0373ccd\transformed\constraintlayout-2.1.4\AndroidManifest.xml:9:5-20
@@ -185,25 +201,25 @@ ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:52:13-54:6
 	android:name
 		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:53:17-76
 service#com.uber.autoaccept.service.UberAccessibilityService
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:58:9-68:19
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:67:9-77:19
 	android:exported
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:61:13-37
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:70:13-37
 	android:permission
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:60:13-79
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:69:13-79
 	android:name
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:59:13-61
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:68:13-61
 intent-filter#action:name:android.accessibilityservice.AccessibilityService
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:62:13-64:29
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:71:13-73:29
 action#android.accessibilityservice.AccessibilityService
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:63:17-92
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:72:17-92
 	android:name
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:63:25-89
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:72:25-89
 meta-data#android.accessibilityservice
-ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:65:13-67:72
+ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:74:13-76:72
 	android:resource
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:67:17-69
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:76:17-69
 	android:name
-		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:66:17-60
+		ADDED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml:75:17-60
 uses-sdk
 INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from D:\Project\UberAutoAccept\app\src\main\AndroidManifest.xml
@@ -274,6 +290,8 @@ MERGED from [androidx.lifecycle:lifecycle-service:2.7.0] C:\Users\PC_1M\.gradle\
 MERGED from [androidx.lifecycle:lifecycle-service:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\8b11547ad229dbc38f2bd050cc894e12\transformed\jetified-lifecycle-service-2.7.0\AndroidManifest.xml:5:5-44
 MERGED from [androidx.lifecycle:lifecycle-runtime-ktx:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\3afb07d133aea1ebc72d02ed5a17e2e5\transformed\jetified-lifecycle-runtime-ktx-2.7.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.lifecycle:lifecycle-runtime-ktx:2.7.0] C:\Users\PC_1M\.gradle\caches\transforms-4\3afb07d133aea1ebc72d02ed5a17e2e5\transformed\jetified-lifecycle-runtime-ktx-2.7.0\AndroidManifest.xml:20:5-44
+MERGED from [org.opencv:opencv:4.9.0] C:\Users\PC_1M\.gradle\caches\transforms-4\6a53dec3cdaa77fd0a26ee9743c94e33\transformed\jetified-opencv-4.9.0\AndroidManifest.xml:5:5-7:41
+MERGED from [org.opencv:opencv:4.9.0] C:\Users\PC_1M\.gradle\caches\transforms-4\6a53dec3cdaa77fd0a26ee9743c94e33\transformed\jetified-opencv-4.9.0\AndroidManifest.xml:5:5-7:41
 MERGED from [dev.rikka.shizuku:provider:13.1.5] C:\Users\PC_1M\.gradle\caches\transforms-4\49ce50c0fac81b067ed8878cf7ce8fa2\transformed\jetified-provider-13.1.5\AndroidManifest.xml:6:5-44
 MERGED from [dev.rikka.shizuku:provider:13.1.5] C:\Users\PC_1M\.gradle\caches\transforms-4\49ce50c0fac81b067ed8878cf7ce8fa2\transformed\jetified-provider-13.1.5\AndroidManifest.xml:6:5-44
 MERGED from [dev.rikka.shizuku:api:13.1.5] C:\Users\PC_1M\.gradle\caches\transforms-4\7723a9e46e9235a5045d4097c394e763\transformed\jetified-api-13.1.5\AndroidManifest.xml:5:5-44

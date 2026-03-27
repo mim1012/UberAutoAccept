@@ -32,14 +32,18 @@ public final class FloatingWidgetBinding implements ViewBinding {
   @NonNull
   public final Button floatingStopBtn;
 
+  @NonNull
+  public final Button floatingTestBtn;
+
   private FloatingWidgetBinding(@NonNull LinearLayout rootView, @NonNull Button floatingCloseBtn,
       @NonNull Button floatingStartBtn, @NonNull TextView floatingStatus,
-      @NonNull Button floatingStopBtn) {
+      @NonNull Button floatingStopBtn, @NonNull Button floatingTestBtn) {
     this.rootView = rootView;
     this.floatingCloseBtn = floatingCloseBtn;
     this.floatingStartBtn = floatingStartBtn;
     this.floatingStatus = floatingStatus;
     this.floatingStopBtn = floatingStopBtn;
+    this.floatingTestBtn = floatingTestBtn;
   }
 
   @Override
@@ -93,8 +97,14 @@ public final class FloatingWidgetBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.floating_test_btn;
+      Button floatingTestBtn = ViewBindings.findChildViewById(rootView, id);
+      if (floatingTestBtn == null) {
+        break missingId;
+      }
+
       return new FloatingWidgetBinding((LinearLayout) rootView, floatingCloseBtn, floatingStartBtn,
-          floatingStatus, floatingStopBtn);
+          floatingStatus, floatingStopBtn, floatingTestBtn);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

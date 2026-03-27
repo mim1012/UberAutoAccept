@@ -16,6 +16,41 @@
         android:textColor="#888888"
         android:layout_marginBottom="8dp" />
 
+    <!-- 상태 카드 -->
+    <LinearLayout
+        android:id="@+id/status_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1E1E1E"
+        android:padding="16dp"
+        android:layout_marginBottom="20dp">
+
+        <TextView
+            android:id="@+id/status_accessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="● 접근성 서비스: 확인 중..."
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/status_shizuku"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="● Shizuku: 확인 중..."
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/status_remote_logging"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="● 원격 로깅: 확인 중..."
+            android:textSize="14sp" />
+
+    </LinearLayout>
+
     <TextView
         android:id="@+id/status_text"
         android:layout_width="match_parent"
