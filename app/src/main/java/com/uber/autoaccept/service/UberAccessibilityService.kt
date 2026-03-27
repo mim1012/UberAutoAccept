@@ -80,7 +80,7 @@ class UberAccessibilityService : AccessibilityService() {
                 Log.w("UAA", "[TEST] Shizuku 미사용 → dispatchGesture fallback")
                 FloatingWidgetService.disableTargetTouch()
                 val path = android.graphics.Path().apply { moveTo(tx, ty) }
-                val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
+                val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 10L)
                 dispatchGesture(
                     android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
                     object : AccessibilityService.GestureResultCallback() {

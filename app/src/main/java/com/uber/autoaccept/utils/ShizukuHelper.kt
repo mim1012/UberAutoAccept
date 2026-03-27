@@ -51,7 +51,7 @@ object ShizukuHelper {
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         Log.i(TAG, "Shizuku binder received — 자동 바인딩 시도")
-        bindService()
+        tryBind("binder_received")
     }
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
@@ -103,12 +103,14 @@ object ShizukuHelper {
 
     /** 순수 바인딩 시도 (리스너 등록 없이) — 재바인딩에도 사용 */
     private fun tryBind(trigger: String = "manual") {
+        val available = isAvailable()
         val perm = hasPermission()
         val bound = userService != null
-        RemoteLogger.logShizukuRebind(trigger, perm, bound)
+        RemoteLogger.logShizukuRebind(trigger, perm, bound,
+            mapOf("available" to available))
 
         if (!perm) {
-            Log.w(TAG, "Shizuku 권한 없음 — binder 수신 대기 중")
+            Log.w(TAG, "Shizuku 바인딩 불가 — available=$available, perm=$perm (trigger=$trigger)")
             return
         }
         if (bound) {
