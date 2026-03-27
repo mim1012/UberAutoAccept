@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cat > /tmp/process_logs.py << 'EOF'\\nimport json\\nfrom datetime import datetime, timedelta\\nimport sys\\n\\n# Device data\\ndevices_raw = [{\\\"id\\\":2,\\\"device_id\\\":None,\\\"device_name\\\":None,\\\"...",
-  "error": "Exit code 2\n/usr/bin/bash: -c: line 80: unexpected EOF while looking for matching `''\n\n/usr/bin/bash: -c: line 80: unexpected EOF while looking for matching `''",
-  "timestamp": "2026-02-26T19:32:25.076Z",
-  "retry_count": 1
+  "tool_input_preview": "{\"command\":\"cd D:/Project/UberAutoAccept && git add .github/workflows/build.yml .github/workflows/release.yml app/build.gradle && git rebase --continue\",\"description\":\"Resolve conflicts and continue r...",
+  "error": "Exit code 1\nYou must edit all merge conflicts and then\nmark them as resolved using git add",
+  "timestamp": "2026-03-27T05:17:37.278Z",
+  "retry_count": 4
 }

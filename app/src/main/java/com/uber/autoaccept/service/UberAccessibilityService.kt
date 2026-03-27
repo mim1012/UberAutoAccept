@@ -240,15 +240,8 @@ class UberAccessibilityService : AccessibilityService() {
     }
     
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // 진단용 로그: 모든 접근성 이벤트 기록
-        Log.d(TAG, "onAccessibilityEvent: pkg=${event.packageName}, type=${event.eventType}, serviceActive=${ServiceState.isActive()}")
-        RemoteLogger.logAccessibilityEvent(event.packageName?.toString() ?: "null", event.eventType, ServiceState.isActive())
+        if (event.packageName != UBER_PACKAGE) return
 
-        if (event.packageName != UBER_PACKAGE) {
-            Log.d(TAG, "Ignored: wrong package (${event.packageName} != $UBER_PACKAGE)")
-            RemoteLogger.logDiagnostic("Wrong package", mapOf("expected" to UBER_PACKAGE, "actual" to (event.packageName ?: "null")))
-            return
-        }
         if (!ServiceState.isActive()) {
             Log.w("UAA", "[SERVICE] ⚠️ ServiceState 비활성 — 자동 복구 시도")
             ServiceState.start()

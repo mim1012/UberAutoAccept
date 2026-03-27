@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "skill_name": "check-logs",
+  "session_id": "40ce7c03-4243-4fba-9dcd-35eb49d35abf",
+  "started_at": "2026-03-24T14:52:22.279Z",
+  "last_checked_at": "2026-03-24T14:52:22.279Z",
+  "reinforcement_count": 0,
+  "max_reinforcements": 3,
+  "stale_ttl_ms": 300000
+}
