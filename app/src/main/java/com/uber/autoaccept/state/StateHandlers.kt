@@ -142,37 +142,45 @@ class AcceptingHandler : BaseStateHandler() {
 
         com.uber.autoaccept.service.FloatingWidgetService.disableTargetTouch()
 
+        var method = "unknown"
+
         // 1차: Shizuku input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
         if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
             val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
-            Log.i("UAA", "[ACCEPT] Shizuku 탭 ${if (ok) "✅" else "❌"} (${target.x},${target.y})")
-            com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-            RemoteLogger.logActionResult("accept", ok, "Shizuku_tap(${target.x},${target.y})")
-            return StateEvent.AcceptSuccess("Shizuku_tap")
+            if (ok) {
+                Log.i("UAA", "[ACCEPT] Shizuku 탭 ✅ (${target.x},${target.y})")
+                com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
+                RemoteLogger.logActionResult("accept", true, "shizuku_tap(${target.x},${target.y})")
+                return StateEvent.AcceptSuccess("shizuku_tap")
+            }
+            // Shizuku 탭 실패 → dispatchGesture fallback
+            Log.w("UAA", "[ACCEPT] Shizuku 탭 ❌ → dispatchGesture fallback")
+            RemoteLogger.logActionResult("accept", false, "shizuku_tap_failed→fallback")
+            method = "shizuku_fail→dispatch"
+        } else {
+            Log.w("UAA", "[ACCEPT] Shizuku 미사용 → dispatchGesture fallback")
+            method = "no_shizuku→dispatch"
         }
 
-        // 2차: dispatchGesture fallback (Shizuku 미설치/미권한 시)
-        Log.w("UAA", "[ACCEPT] Shizuku 미사용 → dispatchGesture fallback")
-        if (svc != null) {
-            val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
-            val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 100L)
-            svc.dispatchGesture(
-                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
-                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                        Log.i("UAA", "[ACCEPT] 탭 ✅ completed (${target.x},${target.y})")
-                    }
-                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                        Log.w("UAA", "[ACCEPT] 탭 ❌ cancelled (${target.x},${target.y})")
-                    }
-                }, null
-            )
-        }
+        // 2차: dispatchGesture fallback
+        val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 10L)
+        svc.dispatchGesture(
+            android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+            object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
+                    RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
+                    RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
+                }
+            }, null
+        )
 
         com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-        Log.i("UAA", "[ACCEPT] ✅ 완료 (${target.x},${target.y})")
-        RemoteLogger.logActionResult("accept", true, "dispatchGesture(${target.x},${target.y})")
-        return StateEvent.AcceptSuccess("dispatchGesture")
+        return StateEvent.AcceptSuccess(method)
     }
 }
 

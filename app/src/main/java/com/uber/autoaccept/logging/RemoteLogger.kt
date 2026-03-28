@@ -246,7 +246,8 @@ object RemoteLogger {
         ))
     }
 
-    fun logShizukuRebind(trigger: String, hasPermission: Boolean, alreadyBound: Boolean) {
+    fun logShizukuRebind(trigger: String, hasPermission: Boolean, alreadyBound: Boolean,
+                         extra: Map<String, Any?> = emptyMap()) {
         enqueue(LogEntry(
             type = LogType.SHIZUKU,
             data = mapOf(
@@ -255,7 +256,7 @@ object RemoteLogger {
                 "has_permission" to hasPermission,
                 "already_bound" to alreadyBound,
                 "timestamp" to System.currentTimeMillis()
-            )
+            ) + extra
         ))
     }
 
