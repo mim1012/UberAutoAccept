@@ -90,6 +90,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="어디서든 → 인천공항행"
+                android:textSize="14sp"
+                android:layout_marginBottom="4dp" />
+
+            <RadioButton
+                android:id="@+id/condition5_radio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="특별시출발 → 광역시행"
                 android:textSize="14sp" />
 
         </RadioGroup>

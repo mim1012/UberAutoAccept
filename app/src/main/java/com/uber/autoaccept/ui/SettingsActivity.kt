@@ -122,6 +122,7 @@ class SettingsActivity : AppCompatActivity() {
             1 -> R.id.condition1_radio
             2 -> R.id.condition2_radio
             3 -> R.id.condition3_radio
+            5 -> R.id.condition5_radio
             else -> R.id.condition4_radio
         }
         conditionRadioGroup.check(radioId)
@@ -137,6 +138,7 @@ class SettingsActivity : AppCompatActivity() {
             R.id.condition2_radio -> 2
             R.id.condition3_radio -> 3
             R.id.condition4_radio -> 4
+            R.id.condition5_radio -> 5
             else -> 4
         }
 
