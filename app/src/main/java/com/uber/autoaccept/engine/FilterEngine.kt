@@ -35,10 +35,11 @@ class FilterEngine(private val settings: FilterSettings) {
         val condition4 = 4 in settings.enabledConditions &&
             settings.airportKeywords.any { offer.dropoffLocation.contains(it, ignoreCase = true) }
 
-        // 조건5: 특별시출발 → 광역시행 (서울 → 인천/부산/대전 등)
+        // 조건5: 특별시출발 → 광역시 중구행 (서울 → 인천 중구 등)
         val condition5 = 5 in settings.enabledConditions &&
             offer.pickupLocation.contains("특별시", ignoreCase = true) &&
-            offer.dropoffLocation.contains("광역시", ignoreCase = true)
+            offer.dropoffLocation.contains("광역시", ignoreCase = true) &&
+            offer.dropoffLocation.contains("중구", ignoreCase = true)
 
         if (!condition1 && !condition2 && !condition3 && !condition4 && !condition5) {
             val reason = "조건 불충족 (출발: ${offer.pickupLocation} / 도착: ${offer.dropoffLocation}) [활성=${settings.enabledConditions}, kw=${settings.pickupKeywords}]"
@@ -56,7 +57,7 @@ class FilterEngine(private val settings: FilterSettings) {
             condition1 -> "서울출발→인천공항"
             condition2 -> "인천공항출발→모든콜"
             condition3 -> "광역시출발→특별시도착"
-            condition5 -> "특별시출발→광역시행"
+            condition5 -> "특별시출발→광역시중구행"
             else -> "어디서든→인천공항행"
         }
         val reason = "$condDesc | 고객거리 ${fmt(offer.customerDistance)}km"
