@@ -133,6 +133,30 @@ class UberOfferParser {
         val allText = AccessibilityHelper.extractAllText(rootNode)
         Log.w(TAG, "=== ADDR_DUMP (${allText.length}chars) ===")
         allText.chunked(500).forEachIndexed { i, chunk -> Log.w(TAG, "ADDR_DUMP[$i]: $chunk") }
+
+        // 4순위: allText(contentDescription 포함)에서 → 기준 직접 추출
+        // 오버레이 렌더링 시 주소가 contentDescription에만 있어 1~3순위 실패할 때 대응
+        val arrowIdx = allText.indexOf("→")
+        if (arrowIdx > 5) {
+            val beforeRaw = allText.substring(0, arrowIdx).trimEnd()
+            val afterRaw = allText.substring(arrowIdx + 1).trimStart()
+            val cityPattern = Regex("(대한민국|서울특별시|부산광역시|인천광역시|대구광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도)")
+            val cityMatch = cityPattern.findAll(beforeRaw).lastOrNull()
+            val pickup = if (cityMatch != null) beforeRaw.substring(cityMatch.range.first).trim()
+                         else beforeRaw.split(Regex("\\s{2,}")).last().trim()
+            val dropoff = afterRaw.split(Regex("\\s{2,}")).first().trim()
+            if (pickup.length > 5 && dropoff.length > 5) {
+                Log.w(TAG, "주소 추출: 4순위 arrow | 출발: $pickup | 도착: $dropoff")
+                RemoteLogger.logParseResult(false, null, "ARROW_SUCCESS: $pickup → $dropoff")
+                RemoteLogger.flushNow()
+                return Triple(pickup, dropoff, ParseConfidence.LOW)
+            } else {
+                RemoteLogger.logParseResult(false, null, "ARROW_FAIL: pickup='$pickup'(${pickup.length}) dropoff='$dropoff'(${dropoff.length})")
+            }
+        } else {
+            RemoteLogger.logParseResult(false, null, "ARROW_NOT_FOUND: allText=${allText.take(200)}")
+        }
+
         RemoteLogger.logParseResult(false, null, "DUMP:${allText.take(1000)}")
         RemoteLogger.flushNow()
         return null
