@@ -99,6 +99,30 @@ object AccessibilityHelper {
         return null
     }
 
+    /**
+     * text 또는 contentDescription에 keyword를 포함하는 노드를 트리 전체에서 수집.
+     * findAccessibilityNodeInfosByText는 text만 검색하므로 contentDescription 전용 노드를 놓침.
+     */
+    fun findNodesByTextOrDesc(root: AccessibilityNodeInfo?, keyword: String): List<AccessibilityNodeInfo> {
+        if (root == null) return emptyList()
+        val result = mutableListOf<AccessibilityNodeInfo>()
+        collectNodesWithKeyword(root, keyword, result)
+        return result
+    }
+
+    private fun collectNodesWithKeyword(node: AccessibilityNodeInfo, keyword: String, result: MutableList<AccessibilityNodeInfo>) {
+        try {
+            val text = node.text?.toString() ?: ""
+            val desc = node.contentDescription?.toString() ?: ""
+            if (text.contains(keyword) || desc.contains(keyword)) {
+                result.add(node)
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { collectNodesWithKeyword(it, keyword, result) }
+            }
+        } catch (_: Exception) {}
+    }
+
     fun isNodeValid(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         return try {

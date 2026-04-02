@@ -106,18 +106,23 @@ class UberOfferParser {
             }
         }
 
-        // 1.5순위: 도시 키워드 직접 추출 (오버레이 오퍼 - text에 주소 있을 때)
-        // findAccessibilityNodeInfosByText는 text만 검색하므로 text에 주소가 있어야 동작
+        // 1.5순위: 도시 키워드 직접 추출 (text + contentDescription 모두 검색)
+        // findAccessibilityNodeInfosByText는 text만 검색 → contentDescription 전용 노드 누락
+        // AccessibilityHelper.findNodesByTextOrDesc로 트리 전체 순회
         try {
-            val pickupCandidates = rootNode.findAccessibilityNodeInfosByText("특별시")
-                ?.mapNotNull { it.text?.toString() }
-                ?.filter { it.length > 10 } ?: emptyList()
-            val dropoffCandidates = (
-                rootNode.findAccessibilityNodeInfosByText("광역시") +
-                rootNode.findAccessibilityNodeInfosByText("경기도") +
-                rootNode.findAccessibilityNodeInfosByText("인천")
-            ).mapNotNull { it.text?.toString() }.filter { it.length > 10 }.distinct()
-                .filterNot { it.contains("특별시") } // 출발지와 중복 제외
+            val pickupCandidates = AccessibilityHelper.findNodesByTextOrDesc(rootNode, "특별시")
+                .mapNotNull { node ->
+                    (node.text?.toString() ?: node.contentDescription?.toString())
+                        ?.takeIf { it.length > 10 }
+                }
+            val dropoffKeywords = listOf("광역시", "경기도", "인천")
+            val dropoffCandidates = dropoffKeywords.flatMap { kw ->
+                AccessibilityHelper.findNodesByTextOrDesc(rootNode, kw)
+                    .mapNotNull { node ->
+                        (node.text?.toString() ?: node.contentDescription?.toString())
+                            ?.takeIf { it.length > 10 }
+                    }
+            }.distinct().filterNot { it.contains("특별시") }
             if (pickupCandidates.isNotEmpty() && dropoffCandidates.isNotEmpty()) {
                 val pickup = pickupCandidates[0]
                 val dropoff = dropoffCandidates[0]

@@ -113,7 +113,7 @@ class FloatingWidgetService : Service() {
             stopSelf()
         }
 
-        testBtn.setOnClickListener { sendTestTap() }
+        testBtn.visibility = View.GONE  // 조건 없는 무조건 탭 차단
 
         // Observe state changes to update UI
         scope.launch {
