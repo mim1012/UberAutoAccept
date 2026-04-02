@@ -119,6 +119,7 @@ class UberOfferParser {
         // virtual view 진단: findAccessibilityNodeInfosByText로 접근 가능한 모든 노드 탐색
         Log.w(TAG, "=== VIRTUAL_PROBE: pkg=${rootNode.packageName} childCnt=${rootNode.childCount} ===")
         val probeTerms = listOf("특별시", "광역시", "인천", "서울", "경기", "공항", "터미널", "동", "로", "길", "수락", "콜")
+        val probeSummary = StringBuilder()
         for (term in probeTerms) {
             try {
                 val found = rootNode.findAccessibilityNodeInfosByText(term) ?: emptyList()
@@ -126,9 +127,13 @@ class UberOfferParser {
                     val t = node.text?.toString()
                     val d = node.contentDescription?.toString()
                     Log.w(TAG, "VIRTUAL[$term][$i] text='$t' desc='$d' cls=${node.className}")
+                    if (i == 0) probeSummary.append("$term:${t?.take(10) ?: "null"}(desc=${d?.take(10) ?: "null"}) ")
                 }
             } catch (_: Exception) {}
         }
+        // 1~3순위 실패 + VIRTUAL_PROBE 요약 원격 기록 (현장 증거)
+        RemoteLogger.logParseResult(false, null, "PROBE: childCnt=${rootNode.childCount} | $probeSummary")
+
         // getChild 기반 전체 텍스트 덤프
         val allText = AccessibilityHelper.extractAllText(rootNode)
         Log.w(TAG, "=== ADDR_DUMP (${allText.length}chars) ===")
@@ -136,6 +141,8 @@ class UberOfferParser {
 
         // 4순위: allText(contentDescription 포함)에서 → 기준 직접 추출
         // 오버레이 렌더링 시 주소가 contentDescription에만 있어 1~3순위 실패할 때 대응
+        val addrTerms = listOf("시", "구", "동", "로", "길", "공항", "터미널")
+        val isAddressLike = { s: String -> addrTerms.any { s.contains(it) } }
         val arrowIdx = allText.indexOf("→")
         if (arrowIdx > 5) {
             val beforeRaw = allText.substring(0, arrowIdx).trimEnd()
@@ -145,13 +152,14 @@ class UberOfferParser {
             val pickup = if (cityMatch != null) beforeRaw.substring(cityMatch.range.first).trim()
                          else beforeRaw.split(Regex("\\s{2,}")).last().trim()
             val dropoff = afterRaw.split(Regex("\\s{2,}")).first().trim()
-            if (pickup.length > 5 && dropoff.length > 5) {
+            if (pickup.length > 5 && dropoff.length > 5 && isAddressLike(pickup) && isAddressLike(dropoff)) {
                 Log.w(TAG, "주소 추출: 4순위 arrow | 출발: $pickup | 도착: $dropoff")
-                RemoteLogger.logParseResult(false, null, "ARROW_SUCCESS: $pickup → $dropoff")
+                // 성공 로그는 parseByViewId에서 찍힘(confidence=LOW). 여기선 컨텍스트만 기록.
+                RemoteLogger.logParseResult(false, null, "ARROW_CTX: allText_snippet=${allText.take(150)}")
                 RemoteLogger.flushNow()
                 return Triple(pickup, dropoff, ParseConfidence.LOW)
             } else {
-                RemoteLogger.logParseResult(false, null, "ARROW_FAIL: pickup='$pickup'(${pickup.length}) dropoff='$dropoff'(${dropoff.length})")
+                RemoteLogger.logParseResult(false, null, "ARROW_FAIL: pickup='$pickup'(${pickup.length},addr=${isAddressLike(pickup)}) dropoff='$dropoff'(${dropoff.length},addr=${isAddressLike(dropoff)})")
             }
         } else {
             RemoteLogger.logParseResult(false, null, "ARROW_NOT_FOUND: allText=${allText.take(200)}")
