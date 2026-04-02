@@ -376,6 +376,10 @@ class UberAccessibilityService : AccessibilityService() {
             if (helper.findNodeByText(root, "새로운 콜") != null) continue
             if (helper.findNodeByText(root, "지금은 요청이 없습니다") != null) continue
             if (helper.findNodeByText(root, "요청 1건 매칭") != null) continue
+            // 운행 중 화면 제외 (목적지 주소가 광역시 포함 시 오퍼 창으로 오판 방지)
+            if (helper.findNodeByText(root, "목적지 도착") != null) continue
+            if (helper.findNodeByText(root, "운행 명세서") != null) continue
+            if (helper.findNodeByText(root, "요금 입력하기") != null) continue
 
             // 2순위: 광역 행정구역 키워드 (파서와 동일한 전략)
             val cityKeywords = listOf("특별시", "광역시", "특별자치시")
