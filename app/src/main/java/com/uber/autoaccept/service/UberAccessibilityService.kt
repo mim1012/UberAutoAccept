@@ -112,10 +112,6 @@ class UberAccessibilityService : AccessibilityService() {
         // ServiceState 초기화 + 프로세스 재시작 시 마지막 상태 복원
         ServiceState.init(this)
         val wasRestored = ServiceState.restoreIfNeeded()
-        // 접근성 서비스가 연결된 이상 active 보장
-        if (!ServiceState.isActive()) {
-            ServiceState.start()
-        }
 
         // 설정 로드
         config = loadConfig()
