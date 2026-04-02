@@ -238,15 +238,7 @@ class UberAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.packageName != UBER_PACKAGE) return
 
-        if (!ServiceState.isActive()) {
-            Log.w("UAA", "[SERVICE] ⚠️ ServiceState 비활성 — 자동 복구 시도")
-            ServiceState.start()
-            config = loadConfig()
-            filterEngine = FilterEngine(config.filterSettings)
-            Log.i("UAA", "[SERVICE] ✅ ServiceState 자동 복구 완료")
-            RemoteLogger.logRecovery("service_state", "event_auto_recover", true,
-                mapOf("event_type" to event.eventType, "package" to (event.packageName ?: "null")))
-        }
+        if (!ServiceState.isActive()) return
 
         Log.i(TAG, "✓ Processing accessibility event: type=${event.eventType}")
         when (event.eventType) {
