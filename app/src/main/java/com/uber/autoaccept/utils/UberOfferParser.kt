@@ -83,21 +83,52 @@ class UberOfferParser {
         val addressTerms = listOf("동", "로", "길")
         for (term in addressTerms) {
             try {
-                val nodes = rootNode.findAccessibilityNodeInfosByText(term)
-                    ?.filter { node ->
-                        val t = node.text?.toString()
-                        !t.isNullOrBlank() && t.length > 10  // "동쪽", "로그" 등 단어 제외
-                    }
-                    ?: emptyList()
+                val rawNodes = rootNode.findAccessibilityNodeInfosByText(term) ?: emptyList()
+                val nodes = rawNodes.filter { node ->
+                    val t = node.text?.toString()
+                    !t.isNullOrBlank() && t.length > 10
+                }
                 if (nodes.size >= 2) {
                     val pickup = nodes[0].text.toString()
                     val dropoff = nodes[1].text.toString()
                     Log.d(TAG, "주소 추출: virtual view ($term) | 출발: $pickup | 도착: $dropoff")
                     return Triple(pickup, dropoff, ParseConfidence.MEDIUM)
                 }
+                // 진단: 노드 찾았는데 필터링된 경우 기록
+                if (rawNodes.isNotEmpty() && nodes.isEmpty()) {
+                    val sample = rawNodes.take(3).joinToString("|") {
+                        "t=${it.text?.toString()?.take(15)},d=${it.contentDescription?.toString()?.take(15)}"
+                    }
+                    RemoteLogger.logParseResult(false, null, "1ST_FILTERED: term=$term raw=${rawNodes.size} sample=[$sample]")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "virtual view 탐색 실패($term): ${e.message}")
             }
+        }
+
+        // 1.5순위: 도시 키워드 직접 추출 (오버레이 오퍼 - text에 주소 있을 때)
+        // findAccessibilityNodeInfosByText는 text만 검색하므로 text에 주소가 있어야 동작
+        try {
+            val pickupCandidates = rootNode.findAccessibilityNodeInfosByText("특별시")
+                ?.mapNotNull { it.text?.toString() }
+                ?.filter { it.length > 10 } ?: emptyList()
+            val dropoffCandidates = (
+                rootNode.findAccessibilityNodeInfosByText("광역시") +
+                rootNode.findAccessibilityNodeInfosByText("경기도") +
+                rootNode.findAccessibilityNodeInfosByText("인천")
+            ).mapNotNull { it.text?.toString() }.filter { it.length > 10 }.distinct()
+                .filterNot { it.contains("특별시") } // 출발지와 중복 제외
+            if (pickupCandidates.isNotEmpty() && dropoffCandidates.isNotEmpty()) {
+                val pickup = pickupCandidates[0]
+                val dropoff = dropoffCandidates[0]
+                Log.w(TAG, "주소 추출: 1.5순위 city keyword | 출발: $pickup | 도착: $dropoff")
+                RemoteLogger.logParseResult(false, null, "1_5_CTX: pickup=${pickup.take(30)} dropoff=${dropoff.take(30)}")
+                return Triple(pickup, dropoff, ParseConfidence.MEDIUM)
+            } else {
+                RemoteLogger.logParseResult(false, null, "1_5_FAIL: pickup=${pickupCandidates.size} dropoff=${dropoffCandidates.size}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "1.5순위 탐색 실패: ${e.message}")
         }
 
         // 2순위: 전체 화면 ViewId
