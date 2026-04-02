@@ -56,12 +56,13 @@ Idle → Online → OfferDetected → OfferAnalyzing
   - 2: 인천공항출발 → 어디든 (pickup is airport keyword)
   - 3: 광역시출발 → 특별시행 (pickup "광역시" AND dropoff "특별시")
   - 4: 어디서든 → 인천공항행 (dropoff is airport keyword) — **기본값**
+  - 5: 특별시출발 → 광역시 중구행 (pickup "특별시" AND dropoff matches "광역시.*중구")
   - Reject 로그에 `[활성=, kw=]` 진단정보 포함 (원격 디버깅용)
 - **`state/StateHandlers.kt`** — One handler per state. Signature: `handle(state, rootNode): StateEvent?`
 - **`service/UberAccessibilityService.kt`** — Main entry point. Listens for `TYPE_WINDOW_STATE_CHANGED` and `TYPE_WINDOW_CONTENT_CHANGED` from `com.ubercab.driver`. Orchestrates state machine, config loading, and service recovery.
 - **`service/FloatingWidgetService.kt`** — Foreground service with two overlay windows: draggable status widget + ⊕ crosshair target. Crosshair coordinates feed `AcceptingHandler.targetClickPoint`.
-- **`service/ServiceState.kt`** — SharedPreferences-backed singleton bridging accessibility and floating widget services. Persists `start()/stop()` to survive process kills. `restoreIfNeeded()` on service reconnect.
-- **`utils/UberOfferParser.kt`** — Dual parsing: ViewId-based (HIGH confidence), regex fallback (MEDIUM confidence).
+- **`service/ServiceState.kt`** — SharedPreferences-backed singleton bridging accessibility and floating widget services. Persists `start()/stop()` to survive process kills. `restoreIfNeeded()` on service reconnect. **서비스 연결 시 자동 start 없음** — 사용자가 명시적으로 start하거나 이전 상태 복원 시에만 active.
+- **`utils/UberOfferParser.kt`** — 4-tier address parsing: 1순위 `findAccessibilityNodeInfosByText` (MEDIUM), 2순위 ViewId full-screen (HIGH), 3순위 ViewId card (MEDIUM), 4순위 `→` arrow from `extractAllText` (LOW, contentDescription 포함). 오버레이 렌더링 시 1~3순위 실패하면 4순위로 대응.
 - **`utils/AccessibilityHelper.kt`** — `AccessibilityNodeInfo` traversal utilities.
 - **`utils/ShizukuHelper.kt`** — AIDL-based Shizuku UserService binding with auto-reconnect. Manages `IShizukuService` lifecycle.
 - **`service/ShizukuUserService.kt`** — Runs in Shizuku process. Implements `IShizukuService.aidl` (`tap`, `tapRepeat` via `input tap` shell command).
