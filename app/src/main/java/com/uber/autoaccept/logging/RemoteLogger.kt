@@ -81,14 +81,17 @@ object RemoteLogger {
     }
 
     fun shutdown() {
+        val currentScope = scope
+        scope = null            // 즉시 null — initialize() race 방지
         flushJob?.cancel()
         heartbeatJob?.cancel()
-        scope?.launch {
+        flushJob = null
+        heartbeatJob = null
+        currentScope?.launch {
             // 서비스 종료 상태 기록
             runCatching { markServiceDisconnected() }
             flush()
-            scope?.cancel()
-            scope = null
+            currentScope.cancel()
         }
         viewIdLastState.clear()
         Log.i(TAG, "Shutdown")
