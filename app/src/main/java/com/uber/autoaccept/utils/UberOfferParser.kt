@@ -162,6 +162,34 @@ class UberOfferParser {
         }
         RemoteLogger.logParseResult(false, null, "5TH_FAIL: pickup=${pickup5?.take(30) ?: "null"} dropoff=${dropoff5?.take(30) ?: "null"}")
 
+        // 6순위: 추가 ViewId 조합 시도
+        // 6a: leg_ 접두사 (multi-leg / 일반 콜 공통 레이아웃)
+        val pickup6a = AccessibilityHelper.findNodeByViewId(rootNode, "leg_pickup_address")?.text?.toString()
+        val dropoff6a = AccessibilityHelper.findNodeByViewId(rootNode, "leg_dropoff_address")?.text?.toString()
+        if (pickup6a != null && dropoff6a != null) {
+            RemoteLogger.logParseResult(false, null, "6TH_OK(leg): pickup=${pickup6a.take(30)} dropoff=${dropoff6a.take(30)}")
+            return Triple(pickup6a, dropoff6a, ParseConfidence.MEDIUM)
+        }
+        // 6b: pickup5 찾았는데 dropoff만 없는 경우 → 대체 dropoff ViewId 시도
+        val effectivePickup = pickup5 ?: pickup6a
+        if (effectivePickup != null) {
+            val dropoffAlt = listOf(
+                "uda_offer_details_title",       // 카드 메인 타이틀이 목적지일 수 있음
+                "uda_offer_details_subtitle",    // 부제목
+                "leg_dropoff",                   // leg_ 변형
+                "leg_dropoff_label"
+            ).firstNotNullOfOrNull {
+                AccessibilityHelper.findNodeByViewId(rootNode, it)?.text?.toString()
+                    ?.takeIf { t -> t.length > 5 }
+                    ?.also { t -> RemoteLogger.logParseResult(false, null, "6TH_DROPOFF_HIT(viewId=$it): ${t.take(30)}") }
+            }
+            if (dropoffAlt != null) {
+                RemoteLogger.logParseResult(false, null, "6TH_OK(alt_dropoff): pickup=${effectivePickup.take(30)} dropoff=${dropoffAlt.take(30)}")
+                return Triple(effectivePickup, dropoffAlt, ParseConfidence.LOW)
+            }
+        }
+        RemoteLogger.logParseResult(false, null, "6TH_FAIL: p6a=${pickup6a?.take(20) ?: "null"} d6a=${dropoff6a?.take(20) ?: "null"}")
+
         // virtual view 진단: findAccessibilityNodeInfosByText로 접근 가능한 모든 노드 탐색
         Log.w(TAG, "=== VIRTUAL_PROBE: pkg=${rootNode.packageName} childCnt=${rootNode.childCount} ===")
         val probeTerms = listOf("특별시", "광역시", "인천", "서울", "경기", "공항", "터미널", "동", "로", "길", "수락", "콜")
