@@ -152,6 +152,16 @@ class UberOfferParser {
             return Triple(pickup3, dropoff3, ParseConfidence.MEDIUM)
         }
 
+        // 5순위: 일반 콜 / 가맹 전용 콜 전용 ViewId (upfront offer와 다른 레이아웃 사용)
+        val pickup5 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_offer_details_pickup_title")?.text?.toString()
+        val dropoff5 = AccessibilityHelper.findNodeByViewId(rootNode, "uda_offer_details_dropoff_title")?.text?.toString()
+        if (pickup5 != null && dropoff5 != null) {
+            Log.d(TAG, "주소 추출: 일반 콜 ViewId (5순위)")
+            RemoteLogger.logParseResult(false, null, "5TH_OK: pickup=${pickup5.take(30)} dropoff=${dropoff5.take(30)}")
+            return Triple(pickup5, dropoff5, ParseConfidence.MEDIUM)
+        }
+        RemoteLogger.logParseResult(false, null, "5TH_FAIL: pickup=${pickup5?.take(30) ?: "null"} dropoff=${dropoff5?.take(30) ?: "null"}")
+
         // virtual view 진단: findAccessibilityNodeInfosByText로 접근 가능한 모든 노드 탐색
         Log.w(TAG, "=== VIRTUAL_PROBE: pkg=${rootNode.packageName} childCnt=${rootNode.childCount} ===")
         val probeTerms = listOf("특별시", "광역시", "인천", "서울", "경기", "공항", "터미널", "동", "로", "길", "수락", "콜")

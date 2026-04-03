@@ -6,7 +6,9 @@ import com.uber.autoaccept.engine.FilterEngine
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.utils.UberOfferParser
+import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * OfferDetected 상태 핸들러
@@ -162,25 +164,32 @@ class AcceptingHandler : BaseStateHandler() {
             method = "no_shizuku→dispatch"
         }
 
-        // 2차: dispatchGesture fallback
+        // 2차: dispatchGesture fallback — 콜백 완료까지 대기
+        // Uber 앱이 de_global_tap_block_accessibility_assisted_csv 피처 플래그로
+        // FLAG_IS_GENERATED_BY_ACCESSIBILITY 탭을 차단 가능. Shizuku 사용 권장.
         val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 10L)
-        svc.dispatchGesture(
-            android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
-            object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                    Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
-                    RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
-                }
-                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                    Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
-                    RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
-                }
-            }, null
-        )
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 50L)
+        val dispatched = suspendCancellableCoroutine<Boolean> { cont ->
+            svc.dispatchGesture(
+                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                        Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
+                        RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
+                        if (cont.isActive) cont.resume(true)
+                    }
+                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                        Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
+                        RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
+                        if (cont.isActive) cont.resume(false)
+                    }
+                }, null
+            )
+        }
 
         com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-        return StateEvent.AcceptSuccess(method)
+        return if (dispatched) StateEvent.AcceptSuccess(method)
+               else StateEvent.ErrorOccurred("dispatch_cancelled[$method]")
     }
 }
 
