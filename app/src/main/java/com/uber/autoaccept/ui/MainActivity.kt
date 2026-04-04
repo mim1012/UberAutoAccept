@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.widget.Button
@@ -153,6 +154,7 @@ class MainActivity : AppCompatActivity() {
                     enableAllInteractions()
                     updateStatus()
                     updateLicenseInfo()
+                    checkBatteryOptimization()
                     checkForUpdates()
                 }
             }
@@ -348,6 +350,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun openAccessibilitySettings() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    private fun checkBatteryOptimization() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            AlertDialog.Builder(this)
+                .setTitle("배터리 최적화 제외 필요")
+                .setMessage("배터리 최적화가 켜져 있으면 서비스가 강제 종료될 수 있습니다.\n\n'허용'을 눌러 이 앱을 배터리 최적화에서 제외하세요.")
+                .setCancelable(true)
+                .setPositiveButton("설정으로 이동") { _, _ ->
+                    startActivity(Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:$packageName")
+                    ))
+                }
+                .setNegativeButton("나중에", null)
+                .show()
+        }
     }
 
     private fun checkForUpdates() {
