@@ -20,6 +20,10 @@ object ServiceState {
     private val _active = MutableStateFlow(false)
     val active: StateFlow<Boolean> = _active.asStateFlow()
 
+    // UberAccessibilityService 생존 여부 (onServiceConnected/onDestroy에서 갱신)
+    private val _accessibilityConnected = MutableStateFlow(false)
+    val accessibilityConnected: StateFlow<Boolean> = _accessibilityConnected.asStateFlow()
+
     private var prefs: SharedPreferences? = null
 
     /** 앱/서비스 시작 시 한 번 호출하여 SharedPreferences 연결 */
@@ -38,6 +42,10 @@ object ServiceState {
     }
 
     fun isActive(): Boolean = _active.value
+
+    fun setAccessibilityConnected(connected: Boolean) {
+        _accessibilityConnected.value = connected
+    }
 
     /**
      * 프로세스 재시작 후 마지막 상태 복원.

@@ -115,19 +115,32 @@ class FloatingWidgetService : Service() {
 
         testBtn.visibility = View.GONE  // 조건 없는 무조건 탭 차단
 
-        // Observe state changes to update UI
+        // active + accessibilityConnected 조합으로 위젯 상태 표시
         scope.launch {
-            ServiceState.active.collect { active ->
-                if (active) {
-                    statusText.text = "실행 중"
-                    statusText.setTextColor(0xFF4CAF50.toInt())
-                    startBtn.alpha = 0.5f
-                    stopBtn.alpha = 1.0f
-                } else {
-                    statusText.text = "정지"
-                    statusText.setTextColor(0xFFF44336.toInt())
-                    startBtn.alpha = 1.0f
-                    stopBtn.alpha = 0.5f
+            kotlinx.coroutines.flow.combine(
+                ServiceState.active,
+                ServiceState.accessibilityConnected
+            ) { active, connected -> Pair(active, connected) }
+            .collect { (active, connected) ->
+                when {
+                    !active -> {
+                        statusText.text = "정지"
+                        statusText.setTextColor(0xFFF44336.toInt())
+                        startBtn.alpha = 1.0f
+                        stopBtn.alpha = 0.5f
+                    }
+                    active && !connected -> {
+                        statusText.text = "서비스 끊김!"
+                        statusText.setTextColor(0xFFFF9800.toInt()) // 주황색 경고
+                        startBtn.alpha = 0.5f
+                        stopBtn.alpha = 1.0f
+                    }
+                    else -> {
+                        statusText.text = "실행 중"
+                        statusText.setTextColor(0xFF4CAF50.toInt())
+                        startBtn.alpha = 0.5f
+                        stopBtn.alpha = 1.0f
+                    }
                 }
             }
         }

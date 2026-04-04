@@ -111,6 +111,7 @@ class UberAccessibilityService : AccessibilityService() {
 
         // ServiceState 초기화 + 프로세스 재시작 시 마지막 상태 복원
         ServiceState.init(this)
+        ServiceState.setAccessibilityConnected(true)
         val wasRestored = ServiceState.restoreIfNeeded()
 
         // 설정 로드
@@ -157,11 +158,21 @@ class UberAccessibilityService : AccessibilityService() {
         // 상태 관찰 시작
         observeState()
 
-        // 서비스 연결 시 Uber 앱이 이미 열려있으면 즉시 Online으로 전환
+        // 서비스 연결 시 Uber 앱이 이미 열려있으면 즉시 Online으로 전환 + 오퍼 스캔
         val rootNode = rootInActiveWindow
         if (rootNode?.packageName == UBER_PACKAGE) {
-            Log.i(TAG, "서비스 연결 시 Uber 앱 이미 열려있음 → Online 전환")
+            Log.i(TAG, "서비스 연결 시 Uber 앱 이미 열려있음 → Online 전환 + 즉시 오퍼 스캔")
             stateMachine.handleEvent(StateEvent.UberAppOpened)
+            serviceScope.launch {
+                delay(300)
+                if (stateMachine.getCurrentState() is AppState.Online) {
+                    val offerRoot = findOfferWindow()
+                    if (offerRoot != null) {
+                        Log.i(TAG, "재접속 시 오퍼 즉시 감지")
+                        stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                    }
+                }
+            }
         }
 
         Log.i("UAA", "[SERVICE] 초기화 완료 | 모드: ${config.filterSettings.mode} | 최대 고객 거리: ${config.filterSettings.maxCustomerDistance}km")
@@ -241,8 +252,22 @@ class UberAccessibilityService : AccessibilityService() {
                 }
             }
         }
+
+        // Watchdog: Online 상태에서 10초마다 자동 오퍼 스캔 (재접속 후 이벤트 없는 경우 대비)
+        serviceScope.launch {
+            while (isActive) {
+                delay(10_000)
+                if (stateMachine.getCurrentState() is AppState.Online && ServiceState.isActive()) {
+                    val offerRoot = findOfferWindow()
+                    if (offerRoot != null) {
+                        Log.i(TAG, "[WATCHDOG] Online 상태 오퍼 감지 → 파싱 시작")
+                        stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                    }
+                }
+            }
+        }
     }
-    
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.packageName != UBER_PACKAGE) return
 
@@ -315,8 +340,6 @@ class UberAccessibilityService : AccessibilityService() {
                     Log.i(TAG, "🔔 새로운 오퍼 감지!")
                     Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 → 파싱 시작")
                     stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
-                } else {
-                    dumpWindowTexts()
                 }
             }
         }
@@ -400,22 +423,6 @@ class UberAccessibilityService : AccessibilityService() {
             RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
             if (pickupNode != null && dropoffNode != null) return root
 
-            // OpenCV fallback: 스크린샷으로 오퍼 카드 및 버튼 시각적 감지
-            val screenshot = screenshotManager.capture()
-            if (screenshot != null) {
-                val result = offerCardDetector.detect(screenshot)
-                if (result != null) {
-                    openCVButtonRect = result.buttonRect
-                    Log.i(TAG, "🔍 OpenCV 오퍼 감지 성공 — 버튼 좌표: (${result.buttonCenterX}, ${result.buttonCenterY})")
-                    Log.i("UAA", "[OPENCV] ✅ 시각적 오퍼 감지 성공 | 버튼: (${result.buttonCenterX.toInt()}, ${result.buttonCenterY.toInt()})")
-                    RemoteLogger.logOpenCVDetection(true, result.buttonCenterX, result.buttonCenterY)
-                    return root
-                } else {
-                    RemoteLogger.logOpenCVDetection(false, reason = "card_not_detected")
-                }
-            } else {
-                RemoteLogger.logOpenCVDetection(false, reason = "screenshot_failed")
-            }
         }
         return null
     }
@@ -486,6 +493,7 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        ServiceState.setAccessibilityConnected(false)
         try { unregisterReceiver(configReloadReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(testTapReceiver) } catch (_: Exception) {}
         com.uber.autoaccept.utils.ShizukuHelper.unbindService()
