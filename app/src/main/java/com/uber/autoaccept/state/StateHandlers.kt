@@ -9,6 +9,7 @@ import com.uber.autoaccept.utils.UberOfferParser
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 
 /**
  * OfferDetected 상태 핸들러
@@ -24,10 +25,19 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
 
         Log.d(TAG, "오퍼 파싱 시작...")
 
-        val offer = parser.parseOfferDetails(rootNode)
+        var offer = parser.parseOfferDetails(rootNode)
+        var attempt = 0
+        while (offer == null && attempt < 3) {
+            attempt++
+            Log.w("UAA", "[PARSE] 렌더링 대기 후 재시도 ($attempt/3)...")
+            delay(150L)
+            if (!rootNode.isValid()) break
+            rootNode.refresh()
+            offer = parser.parseOfferDetails(rootNode)
+        }
 
         return if (offer != null) {
-            Log.i("UAA", "[PARSE] ✅ 파싱 성공 | 출발: ${offer.pickupLocation} | 도착: ${offer.dropoffLocation} | 고객거리: ${offer.customerDistance}km | 버튼발견: ${offer.acceptButtonNode != null}")
+            Log.i("UAA", "[PARSE] ✅ 파싱 성공 (attempt=${attempt+1}) | 출발: ${offer.pickupLocation} | 도착: ${offer.dropoffLocation} | 고객거리: ${offer.customerDistance}km | 버튼발견: ${offer.acceptButtonNode != null}")
             RemoteLogger.logParseResult(
                 success = true,
                 offerData = com.uber.autoaccept.logging.ParsedOfferData(
@@ -43,8 +53,8 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
             )
             StateEvent.OfferParsed(offer)
         } else {
-            Log.e("UAA", "[PARSE] ❌ 파싱 실패 — ViewId/텍스트 모두 실패 (Uber 앱 버전 변경 가능성)")
-            RemoteLogger.logParseResult(success = false, offerData = null, error = "ViewId/텍스트 파싱 실패")
+            Log.e("UAA", "[PARSE] ❌ 파싱 실패 (3회 재시도 후) — ViewId/텍스트 모두 실패")
+            RemoteLogger.logParseResult(success = false, offerData = null, error = "ViewId/텍스트 파싱 실패 (retry=3)")
             StateEvent.ErrorOccurred("오퍼 파싱 실패")
         }
     }
@@ -169,22 +179,28 @@ class AcceptingHandler : BaseStateHandler() {
         // FLAG_IS_GENERATED_BY_ACCESSIBILITY 탭을 차단 가능. Shizuku 사용 권장.
         val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
         val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 50L)
-        val dispatched = suspendCancellableCoroutine<Boolean> { cont ->
-            svc.dispatchGesture(
-                android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
-                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                    override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                        Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
-                        RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
-                        if (cont.isActive) cont.resume(true)
-                    }
-                    override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                        Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
-                        RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
-                        if (cont.isActive) cont.resume(false)
-                    }
-                }, null
-            )
+        val dispatched = try {
+            withTimeout(3000L) { suspendCancellableCoroutine<Boolean> { cont ->
+                svc.dispatchGesture(
+                    android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
+                    object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                        override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                            Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
+                            RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
+                            if (cont.isActive) cont.resume(true)
+                        }
+                        override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                            Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
+                            RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
+                            if (cont.isActive) cont.resume(false)
+                        }
+                    }, null
+                )
+            } }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.w("UAA", "[ACCEPT] dispatchGesture ⏱ timeout (${target.x},${target.y})")
+            RemoteLogger.logActionResult("accept", false, "dispatch_timeout[$method]")
+            false
         }
 
         com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()

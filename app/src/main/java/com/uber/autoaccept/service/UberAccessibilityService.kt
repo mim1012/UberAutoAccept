@@ -210,7 +210,15 @@ class UberAccessibilityService : AccessibilityService() {
                             // 항상 findOfferWindow()로 재탐색:
                             // stored(rawNode).refresh()는 화면 전환 후 운행 리스트 내용을 반환할 수 있음
                             // null 반환 시 OfferDetectedHandler → ErrorOccurred → Reset
-                            findOfferWindow()
+                            var root = findOfferWindow()
+                            // childCnt=1 빈 트리 감지: React Native 렌더 전환 중 → 200ms 대기 후 재탐색
+                            if (root != null && root.childCount <= 1 &&
+                                com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(root).isBlank()) {
+                                Log.w(TAG, "[PARSE] childCnt=${root.childCount} 빈 트리 감지 → 200ms 대기 후 재탐색")
+                                delay(200)
+                                root = findOfferWindow()
+                            }
+                            root
                         } else {
                             rootInActiveWindow
                         }

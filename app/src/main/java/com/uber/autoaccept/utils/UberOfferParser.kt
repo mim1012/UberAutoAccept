@@ -11,6 +11,12 @@ import java.util.UUID
 class UberOfferParser {
     companion object {
         private const val TAG = "UberOfferParser"
+        private val DROPOFF_FALLBACK_IDS = listOf(
+            "uda_offer_details_title",
+            "uda_offer_details_subtitle",
+            "leg_dropoff",
+            "leg_dropoff_label"
+        )
     }
     
     fun parseOfferDetails(rootNode: AccessibilityNodeInfo): UberOffer? {
@@ -19,6 +25,15 @@ class UberOfferParser {
     
     private fun parseByViewId(rootNode: AccessibilityNodeInfo): UberOffer? {
         try {
+            // 비오퍼 화면 조기 탈출: findOfferWindow()가 타이밍 이슈로 잘못 통과시킨 경우 방어
+            val nonOfferKeywords = listOf("운행 리스트", "지금은 요청이 없습니다", "목적지 도착", "운행 명세서")
+            for (kw in nonOfferKeywords) {
+                if (AccessibilityHelper.findNodeByText(rootNode, kw) != null) {
+                    RemoteLogger.logParseResult(false, null, "NON_OFFER_SCREEN: '$kw' 감지 → 파싱 중단")
+                    return null
+                }
+            }
+
             val (pickupAddress, dropoffAddress, confidence) = findAddresses(rootNode)
                 ?: run {
                     Log.w(TAG, "출발지/도착지 추출 실패")
@@ -173,14 +188,9 @@ class UberOfferParser {
         // 6b: pickup5 찾았는데 dropoff만 없는 경우 → 대체 dropoff ViewId 시도
         val effectivePickup = pickup5 ?: pickup6a
         if (effectivePickup != null) {
-            val dropoffAlt = listOf(
-                "uda_offer_details_title",       // 카드 메인 타이틀이 목적지일 수 있음
-                "uda_offer_details_subtitle",    // 부제목
-                "leg_dropoff",                   // leg_ 변형
-                "leg_dropoff_label"
-            ).firstNotNullOfOrNull {
+            val dropoffAlt = DROPOFF_FALLBACK_IDS.firstNotNullOfOrNull {
                 AccessibilityHelper.findNodeByViewId(rootNode, it)?.text?.toString()
-                    ?.takeIf { t -> t.length > 5 }
+                    ?.takeIf { t -> t.length > 10 }
                     ?.also { t -> RemoteLogger.logParseResult(false, null, "6TH_DROPOFF_HIT(viewId=$it): ${t.take(30)}") }
             }
             if (dropoffAlt != null) {
