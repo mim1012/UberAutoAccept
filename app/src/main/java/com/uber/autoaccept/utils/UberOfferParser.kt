@@ -24,8 +24,8 @@ class UberOfferParser {
     }
     
     private fun parseByViewId(rootNode: AccessibilityNodeInfo): UberOffer? {
+        // 비오퍼 화면 조기 탈출: 별도 try-catch로 분리 — 예외 발생 시 false negative 방지
         try {
-            // 비오퍼 화면 조기 탈출: findOfferWindow()가 타이밍 이슈로 잘못 통과시킨 경우 방어
             val nonOfferKeywords = listOf("운행 리스트", "지금은 요청이 없습니다", "목적지 도착", "운행 명세서")
             for (kw in nonOfferKeywords) {
                 if (AccessibilityHelper.findNodeByText(rootNode, kw) != null) {
@@ -33,6 +33,12 @@ class UberOfferParser {
                     return null
                 }
             }
+        } catch (e: Exception) {
+            // 예외 시 안전하게 통과 — 콜을 놓치는 것보다 비오퍼 화면 통과가 낫다
+            Log.w(TAG, "NON_OFFER_SCREEN 체크 예외 → 파싱 계속: ${e.message}")
+        }
+
+        try {
 
             val (pickupAddress, dropoffAddress, confidence) = findAddresses(rootNode)
                 ?: run {
