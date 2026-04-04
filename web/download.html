@@ -25,6 +25,7 @@ button:hover:not(:disabled) { background: #c73650; }
 .dl-shizuku { background: #2196F3; }
 .dl-btn:hover { opacity: 0.9; }
 .info { margin-top: 16px; padding: 12px; background: #0f3460; border-radius: 8px; font-size: 12px; color: #888; line-height: 1.6; }
+.device-badge { text-align: center; margin-top: 8px; font-size: 11px; color: #4CAF50; }
 </style>
 </head>
 <body>
@@ -37,8 +38,10 @@ button:hover:not(:disabled) { background: #c73650; }
     <label>전화번호</label>
     <input type="tel" id="phone" placeholder="01012345678" inputmode="numeric">
 
-    <label>비밀번호</label>
-    <input type="password" id="password" placeholder="비밀번호 입력">
+    <div id="password-section">
+      <label>비밀번호</label>
+      <input type="password" id="password" placeholder="비밀번호 입력">
+    </div>
 
     <button id="verify-btn" onclick="verify()">인증 후 다운로드</button>
     <p class="msg" id="msg"></p>
@@ -47,6 +50,7 @@ button:hover:not(:disabled) { background: #c73650; }
   <div class="downloads" id="downloads">
     <a class="dl-btn dl-app" id="app-link" href="#">UberAutoAccept 다운로드</a>
     <a class="dl-btn dl-shizuku" id="shizuku-link" href="#">Shizuku 다운로드</a>
+    <p class="device-badge" id="device-badge"></p>
     <div class="info">
       <b>설치 순서:</b><br>
       1. Shizuku 먼저 설치 → 실행 → 활성화<br>
@@ -58,15 +62,40 @@ button:hover:not(:disabled) { background: #c73650; }
 </div>
 
 <script>
-// Config loaded at runtime — no secrets in source
 const SUPABASE_URL = 'https://czqnybgoaeihwvgdtvgn.supabase.co';
 const SUPABASE_ANON_KEY = atob('ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW1ONmNXNTVZbWR2WVdWcGFIZDJaMlIwZG1kdUlpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzTlRZeE16TXdNVFFzSW1WNGNDSTZNakEzTVRjd09UQXhOSDAud1JzcWtPZmc0VzRKb3lRWldEZnpQcFdUV0dhLXNDMHlySmdCT1R4Tklobw==');
+
+const DEVICE_TOKEN_KEY = 'uber_device_token';
+const DEVICE_PHONE_KEY = 'uber_device_phone';
+
+// 저장된 기기 토큰 확인 후 자동 인증 시도
+window.addEventListener('DOMContentLoaded', async () => {
+  const savedToken = localStorage.getItem(DEVICE_TOKEN_KEY);
+  const savedPhone = localStorage.getItem(DEVICE_PHONE_KEY);
+
+  if (savedToken && savedPhone) {
+    // 전화번호 입력창에 자동 입력 (마스킹)
+    document.getElementById('phone').value = savedPhone;
+    // 비밀번호 섹션 숨기기 (토큰으로 인증)
+    document.getElementById('password-section').style.display = 'none';
+    document.getElementById('verify-btn').textContent = '기기 인증으로 다운로드';
+    document.getElementById('msg').className = 'msg ok';
+    document.getElementById('msg').textContent = '이 기기에서 인증된 계정입니다';
+  }
+
+  // 최신 버전 표시
+  loadVersion();
+});
 
 async function verify() {
   const phone = document.getElementById('phone').value.replace(/[^0-9]/g, '');
   const password = document.getElementById('password').value;
   const msg = document.getElementById('msg');
   const btn = document.getElementById('verify-btn');
+
+  const savedToken = localStorage.getItem(DEVICE_TOKEN_KEY);
+  const savedPhone = localStorage.getItem(DEVICE_PHONE_KEY);
+  const isDeviceAuth = savedToken && savedPhone === phone;
 
   msg.className = 'msg';
   msg.textContent = '';
@@ -76,7 +105,9 @@ async function verify() {
     msg.textContent = '올바른 전화번호를 입력하세요';
     return;
   }
-  if (!password) {
+
+  // 기기 토큰 인증이 아닌 경우 비밀번호 필수
+  if (!isDeviceAuth && !password) {
     msg.className = 'msg err';
     msg.textContent = '비밀번호를 입력하세요';
     return;
@@ -86,30 +117,54 @@ async function verify() {
   btn.textContent = '확인 중...';
 
   try {
+    const body = { p_phone: phone };
+    if (isDeviceAuth) {
+      body.p_device_token = savedToken;
+    } else {
+      body.p_password = password;
+    }
+
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_download_url_by_phone`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': SUPABASE_ANON_KEY
       },
-      body: JSON.stringify({ p_phone: phone, p_password: password })
+      body: JSON.stringify(body)
     });
 
     const data = await res.json();
 
     if (!data.allowed) {
+      // 다른 기기에서 접속한 경우 → 비밀번호 재인증 요청
+      if (data.need_password) {
+        localStorage.removeItem(DEVICE_TOKEN_KEY);
+        localStorage.removeItem(DEVICE_PHONE_KEY);
+        document.getElementById('password-section').style.display = 'block';
+        document.getElementById('verify-btn').textContent = '인증 후 다운로드';
+        msg.className = 'msg err';
+        msg.textContent = data.message;
+        btn.disabled = false;
+        return;
+      }
       msg.className = 'msg err';
       msg.textContent = data.message || '등록되지 않은 전화번호입니다';
       btn.disabled = false;
-      btn.textContent = '인증 후 다운로드';
+      btn.textContent = isDeviceAuth ? '기기 인증으로 다운로드' : '인증 후 다운로드';
       return;
+    }
+
+    // 새 기기 토큰 저장
+    if (data.device_token) {
+      localStorage.setItem(DEVICE_TOKEN_KEY, data.device_token);
+      localStorage.setItem(DEVICE_PHONE_KEY, phone);
     }
 
     if (!data.has_update) {
       msg.className = 'msg ok';
       msg.textContent = '현재 배포된 버전이 없습니다';
       btn.disabled = false;
-      btn.textContent = '인증 후 다운로드';
+      btn.textContent = isDeviceAuth ? '기기 인증으로 다운로드' : '인증 후 다운로드';
       return;
     }
 
@@ -129,11 +184,13 @@ async function verify() {
       document.getElementById('shizuku-link').style.display = 'none';
     }
 
+    document.getElementById('device-badge').textContent = '이 기기에서 인증됨 ✓';
+
   } catch (e) {
     msg.className = 'msg err';
     msg.textContent = '서버 오류: ' + e.message;
     btn.disabled = false;
-    btn.textContent = '인증 후 다운로드';
+    btn.textContent = isDeviceAuth ? '기기 인증으로 다운로드' : '인증 후 다운로드';
   }
 }
 
@@ -141,8 +198,7 @@ document.getElementById('password').addEventListener('keyup', function(e) {
   if (e.key === 'Enter') verify();
 });
 
-// 페이지 로드 시 최신 버전 표시
-(async function loadVersion() {
+async function loadVersion() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/apk_releases?order=created_at.desc&limit=1&select=version_name,created_at`, {
       headers: { 'apikey': SUPABASE_ANON_KEY }
@@ -156,7 +212,7 @@ document.getElementById('password').addEventListener('keyup', function(e) {
   } catch (e) {
     document.getElementById('version-info').textContent = '';
   }
-})();
+}
 </script>
 </body>
 </html>
