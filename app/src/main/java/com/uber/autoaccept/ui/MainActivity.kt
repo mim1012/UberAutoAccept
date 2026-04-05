@@ -142,6 +142,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun performAuthentication() {
+        // savedPhoneNumber가 없으면 바로 전화번호 입력 요청
+        if (authManager.savedPhoneNumber.isEmpty()) {
+            showPhoneInputDialogFirst()
+            return
+        }
+
         licenseText.text = "인증 확인 중..."
         window.decorView.alpha = 0.5f
 
@@ -185,13 +191,38 @@ class MainActivity : AppCompatActivity() {
             val remaining = MAX_AUTH_RETRIES - authRetryCount
             AlertDialog.Builder(this)
                 .setTitle("인증 실패")
-                .setMessage("$error\n\n등록된 기기만 사용 가능합니다.\n관리자에게 기기 등록을 요청하세요.\n(남은 재시도: ${remaining}회)")
+                .setMessage("$error\n\n등록된 전화번호로 인증하려면 '번호 직접 입력'을 눌러주세요.\n(남은 재시도: ${remaining}회)")
                 .setCancelable(false)
-                .setPositiveButton("재시도") { _, _ -> performAuthentication() }
-                .setNeutralButton("번호 직접 입력") { _, _ -> showPhoneInputDialog() }
+                .setPositiveButton("번호 직접 입력") { _, _ -> showPhoneInputDialog() }
+                .setNeutralButton("재시도") { _, _ -> performAuthentication() }
                 .setNegativeButton("종료") { _, _ -> finish() }
                 .show()
         }
+    }
+
+    /** 최초 실행 시 전화번호 입력 다이얼로그 (취소 불가) */
+    private fun showPhoneInputDialogFirst() {
+        val editText = EditText(this).apply {
+            hint = "전화번호 입력 (01000000000)"
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+        }
+        AlertDialog.Builder(this)
+            .setTitle("전화번호 인증")
+            .setMessage("등록된 전화번호를 입력하세요")
+            .setView(editText)
+            .setCancelable(false)
+            .setPositiveButton("확인") { _, _ ->
+                val phone = editText.text.toString().replace(Regex("[^0-9]"), "")
+                if (phone.length >= 10) {
+                    authManager.savedPhoneNumber = phone
+                    performAuthentication()
+                } else {
+                    Toast.makeText(this, "올바른 전화번호를 입력해주세요", Toast.LENGTH_SHORT).show()
+                    showPhoneInputDialogFirst()
+                }
+            }
+            .setNegativeButton("종료") { _, _ -> finish() }
+            .show()
     }
 
     private fun showPhoneInputDialog() {
