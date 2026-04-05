@@ -17,13 +17,13 @@ object UpdateChecker {
 
     private val gson = Gson()
 
-    suspend fun check(context: Context, forceCheck: Boolean = false): UpdateCheckResult {
+    suspend fun check(context: Context, password: String? = null, forceCheck: Boolean = false): UpdateCheckResult {
         return withContext(Dispatchers.IO) {
             try {
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-                // Check cache
-                if (!forceCheck) {
+                // 비밀번호 없이 캐시 사용 (비밀번호 입력 시에는 항상 서버 확인)
+                if (!forceCheck && password == null) {
                     val lastCheck = prefs.getLong(LAST_CHECK_KEY, 0)
                     if (System.currentTimeMillis() - lastCheck < CHECK_INTERVAL_MS) {
                         val cached = prefs.getString(CACHED_RESULT_KEY, null)
@@ -33,21 +33,23 @@ object UpdateChecker {
                     }
                 }
 
-                // Get device_id from auth prefs
+                // 휴대폰 번호 가져오기 (AuthManager prefs에서)
                 val authPrefs = context.getSharedPreferences("twinme_auth", Context.MODE_PRIVATE)
-                val deviceId = authPrefs.getString("device_id", null)
-                    ?: return@withContext UpdateCheckResult(false, false, null, null, null, "Device not registered")
+                val phoneNumber = authPrefs.getString("phone_number", null)
+                    ?: return@withContext UpdateCheckResult(false, false, null, null, null, "휴대폰 번호가 등록되지 않았습니다")
 
                 val currentVersion = BuildConfig.VERSION_NAME
 
-                // Call Supabase RPC
-                val response = SupabaseClient.rpcPost(
-                    "get_download_url",
-                    mapOf(
-                        "p_device_id" to deviceId,
-                        "p_current_version" to currentVersion
-                    )
+                // Supabase RPC 호출 (phone_number + password 방식)
+                val params = mutableMapOf<String, Any>(
+                    "p_phone_number" to phoneNumber,
+                    "p_current_version" to currentVersion
                 )
+                if (password != null) {
+                    params["p_password"] = password
+                }
+
+                val response = SupabaseClient.rpcPost("get_download_url", params)
 
                 val allowed = response["allowed"] as? Boolean ?: false
                 val hasUpdate = response["has_update"] as? Boolean ?: false
@@ -58,11 +60,13 @@ object UpdateChecker {
 
                 val result = UpdateCheckResult(allowed, hasUpdate, latestVersion, appUrl, shizukuUrl, message)
 
-                // Cache result
-                prefs.edit()
-                    .putLong(LAST_CHECK_KEY, System.currentTimeMillis())
-                    .putString(CACHED_RESULT_KEY, gson.toJson(result))
-                    .apply()
+                // 성공 시 캐시 저장 (비밀번호 없이도 접근 가능한 경우만)
+                if (allowed && password == null) {
+                    prefs.edit()
+                        .putLong(LAST_CHECK_KEY, System.currentTimeMillis())
+                        .putString(CACHED_RESULT_KEY, gson.toJson(result))
+                        .apply()
+                }
 
                 result
             } catch (e: Exception) {
