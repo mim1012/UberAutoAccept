@@ -117,12 +117,11 @@ async function verify() {
   btn.textContent = '확인 중...';
 
   try {
-    const body = { p_phone: phone };
-    if (isDeviceAuth) {
-      body.p_device_token = savedToken;
-    } else {
-      body.p_password = password;
-    }
+    const body = {
+      p_phone: phone,
+      p_password: isDeviceAuth ? '' : password,
+      p_device_token: isDeviceAuth ? savedToken : ''
+    };
 
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_download_url_by_phone`, {
       method: 'POST',
