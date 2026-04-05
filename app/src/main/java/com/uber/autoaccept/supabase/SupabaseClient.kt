@@ -131,6 +131,44 @@ object SupabaseClient {
         }
     }
 
+    /** Supabase PostgREST RPC 함수 호출 - 리스트 반환 (RETURNS TABLE 함수용) */
+    suspend fun rpcPostList(function: String, body: Map<String, Any?>): List<Map<String, Any?>> {
+        return withContext(Dispatchers.IO) {
+            val url = URL("${SupabaseConfig.SUPABASE_URL}/rest/v1/rpc/$function")
+            val conn = url.openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+                conn.connectTimeout = TIMEOUT_MS
+                conn.readTimeout = TIMEOUT_MS
+                conn.doOutput = true
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(gson.toJson(body)) }
+
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                val response = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+                if (code !in 200..299) {
+                    try {
+                        val errType = object : TypeToken<Map<String, Any?>>() {}.type
+                        val errMap: Map<String, Any?> = gson.fromJson(response, errType)
+                        val hint = errMap["hint"] as? String
+                        val message = errMap["message"] as? String
+                        throw Exception(hint ?: message ?: response)
+                    } catch (e: Exception) {
+                        if (e is SupabaseException) throw e
+                        throw Exception(e.message ?: response)
+                    }
+                }
+
+                val type = object : TypeToken<List<Map<String, Any?>>>() {}.type
+                gson.fromJson(response, type) ?: emptyList()
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
+
     /** Supabase PostgREST UPSERT (onConflict 컬럼 기준 충돌 시 병합) */
     suspend fun restUpsert(table: String, body: Any, token: String, onConflict: String? = null) {
         withContext(Dispatchers.IO) {
