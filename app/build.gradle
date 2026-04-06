@@ -29,6 +29,9 @@ android {
         def supabaseAnonKey = localProps.getProperty('SUPABASE_ANON_KEY', System.getenv('SUPABASE_ANON_KEY') ?: '')
         buildConfigField "String", "SUPABASE_URL", "\"${supabaseUrl}\""
         buildConfigField "String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey}\""
+        // Sentry DSN: local.properties → 환경변수 → 기본 DSN 순으로 fallback
+        def sentryDsn = localProps.getProperty('SENTRY_DSN', System.getenv('SENTRY_DSN') ?: 'https://4ec912cc8e9e08a840d3fe0eaf177345@o4511102675648512.ingest.us.sentry.io/4511163187068928')
+        buildConfigField "String", "SENTRY_DSN", "\"${sentryDsn}\""
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -100,6 +103,9 @@ dependencies {
 
     // OpenCV - 오퍼 화면 시각적 감지 (버튼 색상/윤곽선 검출)
     implementation 'org.opencv:opencv:4.9.0'
+
+    // Sentry Android SDK (에러 모니터링)
+    implementation 'io.sentry:sentry-android:7.3.0'
     
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

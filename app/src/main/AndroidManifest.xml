@@ -54,6 +54,20 @@
                 android:value="floating_overlay_control" />
         </service>
 
+        <!-- Sentry 에러 모니터링 설정 -->
+        <meta-data
+            android:name="io.sentry.dsn"
+            android:value="https://4ec912cc8e9e08a840d3fe0eaf177345@o4511102675648512.ingest.us.sentry.io/4511163187068928" />
+        <meta-data
+            android:name="io.sentry.traces.sample-rate"
+            android:value="0.2" />
+        <meta-data
+            android:name="io.sentry.breadcrumbs.activity-lifecycle"
+            android:value="true" />
+        <meta-data
+            android:name="io.sentry.attach-screenshot"
+            android:value="false" />
+
         <!-- Shizuku Provider -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
