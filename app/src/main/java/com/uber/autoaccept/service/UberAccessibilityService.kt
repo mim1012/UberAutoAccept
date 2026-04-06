@@ -26,12 +26,12 @@ import java.util.UUID
  * Vortex의 메인 루프 패턴을 따름
  */
 class UberAccessibilityService : AccessibilityService() {
-    
+
     companion object {
         private const val TAG = "UberAccessibilityService"
         private const val UBER_PACKAGE = "com.ubercab.driver"
     }
-    
+
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val stateMachine = StateMachine()
 
@@ -41,6 +41,10 @@ class UberAccessibilityService : AccessibilityService() {
 
     private val stateHandlers = mutableListOf<IStateHandler>()
     private var offerDetectionJob: Job? = null
+
+    /** 수락 후 3초 쿨다운: 화면 전환 전 stale 트리 재파싱 방지 */
+    @Volatile private var lastAcceptTimeMs: Long = 0L
+    private val ACCEPT_COOLDOWN_MS = 3000L
 
     private lateinit var screenshotManager: ScreenshotManager
     private val offerCardDetector = OfferCardDetector()
@@ -102,7 +106,7 @@ class UberAccessibilityService : AccessibilityService() {
         val halfPx = resources.displayMetrics.density * 60f  // 120dp의 절반
         return Pair(lpX + halfPx, lpY + halfPx)
     }
-    
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "서비스 연결됨")
@@ -178,7 +182,7 @@ class UberAccessibilityService : AccessibilityService() {
         Log.i("UAA", "[SERVICE] 초기화 완료 | 모드: ${config.filterSettings.mode} | 최대 고객 거리: ${config.filterSettings.maxCustomerDistance}km")
         Log.i(TAG, "초기화 완료. 모드: ${config.filterSettings.mode}")
     }
-    
+
     /**
      * 상태 핸들러 등록
      */
@@ -202,7 +206,7 @@ class UberAccessibilityService : AccessibilityService() {
         stateHandlers.add(RejectedHandler())
         stateHandlers.add(ErrorHandler())
     }
-    
+
     /**
      * 상태 관찰 및 자동 처리
      * Vortex의 메인 루프 패턴
@@ -211,10 +215,16 @@ class UberAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             stateMachine.currentState.collect { state ->
                 Log.d(TAG, "Current State: ${state::class.simpleName}")
-                
+
+                // 수락 완료 시 쿨다운 타이머 시작
+                if (state is AppState.Accepted) {
+                    lastAcceptTimeMs = System.currentTimeMillis()
+                    Log.i(TAG, "[COOLDOWN] 수락 완료 — 3초 쿨다운 시작")
+                }
+
                 // 상태에 맞는 핸들러 찾기
                 val handler = stateHandlers.firstOrNull { it.canHandle(state) }
-                
+
                 if (handler != null) {
                     try {
                         val rootNode = if (state is AppState.OfferDetected) {
@@ -241,7 +251,7 @@ class UberAccessibilityService : AccessibilityService() {
                     Log.d(TAG, "AcceptingHandler 윈도우 주입: ${handler.allWindowRoots.size}개")
                 }
                 val event = handler.handle(state, rootNode)
-                        
+
                         if (event != null) {
                             stateMachine.handleEvent(event)
                         }
@@ -283,7 +293,7 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
     }
-    
+
     /**
      * 윈도우 상태 변경 처리
      * STATE_CHANGED = 새 화면/오버레이 등장 → 오퍼 감지 즉시 시도
@@ -293,6 +303,12 @@ class UberAccessibilityService : AccessibilityService() {
 
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
+        }
+
+        // 수락 후 쿨다운 중에는 오퍼 감지 스킵
+        if (System.currentTimeMillis() - lastAcceptTimeMs < ACCEPT_COOLDOWN_MS) {
+            Log.d(TAG, "[COOLDOWN] STATE_CHANGED 무시 (쿨다운 중)")
+            return
         }
 
         // Online 상태에서 새 윈도우가 뜨면 짧은 딜레이 후 오퍼 감지 시도
@@ -315,7 +331,7 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
     }
-    
+
     /**
      * 윈도우 콘텐츠 변경 처리
      */
@@ -326,6 +342,12 @@ class UberAccessibilityService : AccessibilityService() {
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
             currentState = stateMachine.getCurrentState()
+        }
+
+        // 수락 후 쿨다운 중에는 오퍼 감지 스킵
+        if (System.currentTimeMillis() - lastAcceptTimeMs < ACCEPT_COOLDOWN_MS) {
+            Log.d(TAG, "[COOLDOWN] CONTENT_CHANGED 무시 (쿨다운 중)")
+            return
         }
 
         // Online 상태에서만 새로운 오퍼 감지
@@ -344,7 +366,7 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
     }
-    
+
     /**
      * 진단: 현재 모든 윈도우의 텍스트를 UAA_DUMP 태그로 출력
      */
@@ -426,7 +448,7 @@ class UberAccessibilityService : AccessibilityService() {
         }
         return null
     }
-    
+
     /**
      * 설정 로드
      */
@@ -465,7 +487,7 @@ class UberAccessibilityService : AccessibilityService() {
             deviceId = deviceId
         )
     }
-    
+
     override fun onInterrupt() {
         Log.w(TAG, "서비스 중단됨 — 복구 시도")
         Log.e("UAA", "[SERVICE] ❌ 접근성 서비스 강제 중단 (onInterrupt) — 복구 시도 중")

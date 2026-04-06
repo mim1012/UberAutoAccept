@@ -242,7 +242,10 @@ class UberOfferParser {
             val pickup = if (cityMatch != null) beforeRaw.substring(cityMatch.range.first).trim()
                          else beforeRaw.split(Regex("\\s{2,}")).last().trim()
             val dropoff = afterRaw.split(Regex("\\s{2,}")).first().trim()
-            if (pickup.length > 5 && dropoff.length > 5 && isAddressLike(pickup) && isAddressLike(dropoff)) {
+            val invalidKeywords = listOf("출발", "도착", "→ ", "KST", "수락된 콜", "개발자", "홈", "수입", "메시지", "메뉴")
+            val isInvalidAddr = { s: String -> invalidKeywords.any { s.contains(it) } || s.length > 150 }
+            if (pickup.length > 5 && dropoff.length > 5 && isAddressLike(pickup) && isAddressLike(dropoff)
+                && !isInvalidAddr(pickup) && !isInvalidAddr(dropoff)) {
                 Log.w(TAG, "주소 추출: 4순위 arrow | 출발: $pickup | 도착: $dropoff")
                 // 성공 로그는 parseByViewId에서 찍힘(confidence=LOW). 여기선 컨텍스트만 기록.
                 RemoteLogger.logParseResult(false, null, "ARROW_CTX: allText_snippet=${allText.take(150)}")
