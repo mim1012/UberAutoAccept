@@ -93,7 +93,7 @@ class UberOfferParser {
                 val rawNodes = rootNode.findAccessibilityNodeInfosByText(term) ?: emptyList()
                 val nodes = rawNodes.filter { node ->
                     val t = node.text?.toString()
-                    !t.isNullOrBlank() && t.length > 10
+                    !t.isNullOrBlank() && t.length > 4
                 }
                 if (nodes.size >= 2) {
                     val pickup = nodes[0].text.toString()

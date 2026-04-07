@@ -228,15 +228,24 @@ class UberAccessibilityService : AccessibilityService() {
                 if (handler != null) {
                     try {
                         val rootNode = if (state is AppState.OfferDetected) {
-                            // 항상 findOfferWindow()로 재탐색:
-                            // stored(rawNode).refresh()는 화면 전환 후 운행 리스트 내용을 반환할 수 있음
-                            // null 반환 시 OfferDetectedHandler → ErrorOccurred → Reset
-                            var root = findOfferWindow()
-                            // childCnt=1 빈 트리 감지: React Native 렌더 전환 중 → 200ms 대기 후 재탐색
-                            if (root != null && root.childCount <= 1 &&
-                                com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(root).isBlank()) {
-                                Log.w(TAG, "[PARSE] childCnt=${root.childCount} 빈 트리 감지 → 200ms 대기 후 재탐색")
-                                delay(200)
+                            // 1순위: 최초 감지 시 저장한 rawNode 재사용 (오퍼 창이 사라져도 node 자체는 유효할 수 있음)
+                            val stored = state.offer.acceptButtonNode
+                            var root: android.view.accessibility.AccessibilityNodeInfo? = null
+                            if (stored != null) {
+                                try { stored.refresh() } catch (_: Exception) {}
+                                val nodeOk = try { stored.childCount; true } catch (_: Exception) { false }
+                                if (nodeOk) root = stored
+                            }
+                            // 2순위: stored node 무효 시 findOfferWindow() fallback
+                            if (root == null) root = findOfferWindow()
+                            // childCnt=1 빈 트리 감지: React Native 렌더 전환 중 → 최대 3회 대기 후 재탐색
+                            var waitAttempt = 0
+                            while (root != null && root.childCount <= 1 &&
+                                com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(root).isBlank()
+                                && waitAttempt < 3) {
+                                waitAttempt++
+                                Log.w(TAG, "[PARSE] childCnt=${root.childCount} 빈 트리 감지 → 300ms 대기 후 재탐색 ($waitAttempt/3)")
+                                delay(300)
                                 root = findOfferWindow()
                             }
                             root
@@ -300,6 +309,16 @@ class UberAccessibilityService : AccessibilityService() {
      */
     private fun handleWindowStateChanged(event: AccessibilityEvent) {
         val currentState = stateMachine.getCurrentState()
+        val className = event.className?.toString() ?: "null"
+        val packageName = event.packageName?.toString() ?: "null"
+        Log.i(TAG, "[WSC] className=$className state=${currentState::class.simpleName}")
+        RemoteLogger.logDiagnostic("WSC", mapOf(
+            "className" to className,
+            "packageName" to packageName,
+            "state" to (currentState::class.simpleName ?: "unknown"),
+            "hasText" to (event.text?.joinToString("|")?.take(80) ?: "")
+        ))
+        if (currentState is AppState.Online) RemoteLogger.flushNow()
 
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
@@ -311,22 +330,40 @@ class UberAccessibilityService : AccessibilityService() {
             return
         }
 
+        // 콜 카드 className 게이트 — 리버스 엔지니어링으로 확인된 클래스명
+        val isOfferCardClass = className.contains("CardJobOfferView", ignoreCase = false) ||
+            className.contains("upfront_driver_assignment_offer_card", ignoreCase = false) ||
+            className.contains("UpfrontOfferView", ignoreCase = false)
+
         // Online 상태에서 새 윈도우가 뜨면 짧은 딜레이 후 오퍼 감지 시도
+        // isOfferCardClass이면 즉시 처리, 아니면 findOfferWindow로 확인
         if (currentState is AppState.Online) {
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                // 오퍼 카드 로딩 대기 후 재시도 (최대 3회, 50ms 간격)
-                repeat(3) { attempt ->
-                    delay(50)
-                    if (stateMachine.getCurrentState() is AppState.Online) {
-                        val offerRoot = findOfferWindow()
-                        if (offerRoot != null) {
-                            Log.i(TAG, "🔔 오퍼 감지 (STATE_CHANGED, attempt=${attempt + 1})")
-                            Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 (STATE_CHANGED attempt=${attempt + 1}) → 파싱 시작")
-                            stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
-                            return@launch
-                        }
-                    } else return@launch
+                if (isOfferCardClass) {
+                    // 확정 — 콜 카드 className 감지. 렌더링 대기 후 파싱
+                    Log.i("UAA", "[OFFER] 콜 카드 className 감지: $className")
+                    RemoteLogger.flushNow() // WSC diagnostic 로그 즉시 전송
+                    delay(100)
+                    val offerRoot = findOfferWindow()
+                    if (offerRoot != null && stateMachine.getCurrentState() is AppState.Online) {
+                        Log.i("UAA", "[OFFER] 콜 카드 확정 → 파싱 시작")
+                        stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                    }
+                } else {
+                    // 비확정 — 기존 방식 (3회 retry)
+                    repeat(3) { attempt ->
+                        delay(50)
+                        if (stateMachine.getCurrentState() is AppState.Online) {
+                            val offerRoot = findOfferWindow()
+                            if (offerRoot != null) {
+                                Log.i(TAG, "오퍼 감지 (STATE_CHANGED, attempt=${attempt + 1})")
+                                Log.i("UAA", "[OFFER] 오퍼 화면 감지 (attempt=${attempt + 1}) → 파싱 시작")
+                                stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                                return@launch
+                            }
+                        } else return@launch
+                    }
                 }
             }
         }
@@ -406,8 +443,23 @@ class UberAccessibilityService : AccessibilityService() {
         val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
             ?: listOfNotNull(rootInActiveWindow)
 
-        // 1단계: 모든 창에서 "콜 수락" 즉시 탐색 — 발견 즉시 반환 (부정 체크 불필요)
+        // 비오퍼 화면 판별 — extractAllText(depth 10)와 findAccessibilityNodeInfosByText(무제한) 병행
+        fun isNonOfferRoot(root: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+            val allText = helper.extractAllText(root)
+            val nonOfferKeywords = listOf("운행 리스트", "새로운 콜", "지금은 요청이 없습니다",
+                "요청 1건 매칭", "목적지 도착", "운행 명세서", "요금 입력하기")
+            for (kw in nonOfferKeywords) {
+                if (allText.contains(kw)) return true
+                try {
+                    if (root.findAccessibilityNodeInfosByText(kw)?.isNotEmpty() == true) return true
+                } catch (_: Exception) {}
+            }
+            return false
+        }
+
+        // 1단계: "콜 수락" 즉시 탐색 — 비오퍼 화면 제외 후 반환
         for (root in roots) {
+            if (isNonOfferRoot(root)) continue
             if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
                 Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} (콜수락 즉시 감지)")
                 return root
@@ -416,15 +468,7 @@ class UberAccessibilityService : AccessibilityService() {
 
         // 2단계: "콜 수락" 없을 때만 폭넓은 탐색
         for (root in roots) {
-            // 비오퍼 화면 제외
-            if (helper.findNodeByText(root, "운행 리스트") != null) continue
-            if (helper.findNodeByText(root, "새로운 콜") != null) continue
-            if (helper.findNodeByText(root, "지금은 요청이 없습니다") != null) continue
-            if (helper.findNodeByText(root, "요청 1건 매칭") != null) continue
-            // 운행 중 화면 제외 (목적지 주소가 광역시 포함 시 오퍼 창으로 오판 방지)
-            if (helper.findNodeByText(root, "목적지 도착") != null) continue
-            if (helper.findNodeByText(root, "운행 명세서") != null) continue
-            if (helper.findNodeByText(root, "요금 입력하기") != null) continue
+            if (isNonOfferRoot(root)) continue
 
             // 2순위: 광역 행정구역 키워드 (파서와 동일한 전략)
             val cityKeywords = listOf("특별시", "광역시", "특별자치시")
