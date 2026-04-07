@@ -28,6 +28,12 @@ object ShizukuHelper {
     private var userService: IShizukuService? = null
     private var bindStartTime: Long = 0L
 
+    private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingRetry: Runnable? = null
+    private var retryDelayMs: Long = 3000L
+    private const val RETRY_MIN_MS = 3000L
+    private const val RETRY_MAX_MS = 30000L
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val latency = System.currentTimeMillis() - bindStartTime
@@ -35,6 +41,8 @@ object ShizukuHelper {
                 userService = IShizukuService.Stub.asInterface(binder)
                 Log.i(TAG, "UserService connected (${latency}ms)")
                 RemoteLogger.logShizukuBind(true, latency)
+                cancelPendingRetry()
+                retryDelayMs = RETRY_MIN_MS
             } else {
                 Log.e(TAG, "Invalid binder received")
                 RemoteLogger.logShizukuBind(false, latency, "invalid_binder")
@@ -110,11 +118,13 @@ object ShizukuHelper {
             mapOf("available" to available))
 
         if (!perm) {
-            Log.w(TAG, "Shizuku 바인딩 불가 — available=$available, perm=$perm (trigger=$trigger)")
+            Log.w(TAG, "Shizuku 바인딩 불가 — available=$available, perm=$perm (trigger=$trigger) — ${retryDelayMs}ms 후 재시도")
+            scheduleRetry("no_permission")
             return
         }
         if (bound) {
             Log.d(TAG, "이미 바인딩됨 — 스킵")
+            cancelPendingRetry()
             return
         }
         try {
@@ -124,10 +134,30 @@ object ShizukuHelper {
         } catch (e: Exception) {
             Log.e(TAG, "bindUserService 실패: ${e.message}")
             RemoteLogger.logShizukuBind(false, 0, e.message)
+            scheduleRetry("bind_exception")
         }
     }
 
+    /** 백오프 재시도 예약 (3s → 6s → 12s → 24s → 30s max). 성공 시 cancelPendingRetry로 취소. */
+    private fun scheduleRetry(reason: String) {
+        cancelPendingRetry()
+        val delay = retryDelayMs
+        val runnable = Runnable {
+            pendingRetry = null
+            tryBind("retry_$reason")
+        }
+        pendingRetry = runnable
+        retryHandler.postDelayed(runnable, delay)
+        retryDelayMs = (retryDelayMs * 2).coerceAtMost(RETRY_MAX_MS)
+    }
+
+    private fun cancelPendingRetry() {
+        pendingRetry?.let { retryHandler.removeCallbacks(it) }
+        pendingRetry = null
+    }
+
     fun unbindService() {
+        cancelPendingRetry()
         try {
             Shizuku.removeBinderReceivedListener(binderReceivedListener)
             Shizuku.removeBinderDeadListener(binderDeadListener)
