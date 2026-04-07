@@ -32,7 +32,7 @@ class UberAccessibilityService : AccessibilityService() {
         private const val UBER_PACKAGE = "com.ubercab.driver"
     }
 
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val stateMachine = StateMachine()
 
     private lateinit var parser: UberOfferParser

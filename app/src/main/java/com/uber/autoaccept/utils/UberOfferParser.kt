@@ -24,20 +24,6 @@ class UberOfferParser {
     }
     
     private fun parseByViewId(rootNode: AccessibilityNodeInfo): UberOffer? {
-        // 비오퍼 화면 조기 탈출: 별도 try-catch로 분리 — 예외 발생 시 false negative 방지
-        try {
-            val nonOfferKeywords = listOf("운행 리스트", "지금은 요청이 없습니다", "목적지 도착", "운행 명세서")
-            for (kw in nonOfferKeywords) {
-                if (AccessibilityHelper.findNodeByText(rootNode, kw) != null) {
-                    RemoteLogger.logParseResult(false, null, "NON_OFFER_SCREEN: '$kw' 감지 → 파싱 중단")
-                    return null
-                }
-            }
-        } catch (e: Exception) {
-            // 예외 시 안전하게 통과 — 콜을 놓치는 것보다 비오퍼 화면 통과가 낫다
-            Log.w(TAG, "NON_OFFER_SCREEN 체크 예외 → 파싱 계속: ${e.message}")
-        }
-
         try {
 
             val (pickupAddress, dropoffAddress, confidence) = findAddresses(rootNode)
@@ -125,36 +111,6 @@ class UberOfferParser {
             } catch (e: Exception) {
                 Log.w(TAG, "virtual view 탐색 실패($term): ${e.message}")
             }
-        }
-
-        // 1.5순위: 도시 키워드 직접 추출 (text + contentDescription 모두 검색)
-        // findAccessibilityNodeInfosByText는 text만 검색 → contentDescription 전용 노드 누락
-        // AccessibilityHelper.findNodesByTextOrDesc로 트리 전체 순회
-        try {
-            val pickupCandidates = AccessibilityHelper.findNodesByTextOrDesc(rootNode, "특별시")
-                .mapNotNull { node ->
-                    (node.text?.toString() ?: node.contentDescription?.toString())
-                        ?.takeIf { it.length > 10 }
-                }
-            val dropoffKeywords = listOf("광역시", "경기도", "인천")
-            val dropoffCandidates = dropoffKeywords.flatMap { kw ->
-                AccessibilityHelper.findNodesByTextOrDesc(rootNode, kw)
-                    .mapNotNull { node ->
-                        (node.text?.toString() ?: node.contentDescription?.toString())
-                            ?.takeIf { it.length > 10 }
-                    }
-            }.distinct().filterNot { it.contains("특별시") }
-            if (pickupCandidates.isNotEmpty() && dropoffCandidates.isNotEmpty()) {
-                val pickup = pickupCandidates[0]
-                val dropoff = dropoffCandidates[0]
-                Log.w(TAG, "주소 추출: 1.5순위 city keyword | 출발: $pickup | 도착: $dropoff")
-                RemoteLogger.logParseResult(false, null, "1_5_CTX: pickup=${pickup.take(30)} dropoff=${dropoff.take(30)}")
-                return Triple(pickup, dropoff, ParseConfidence.MEDIUM)
-            } else {
-                RemoteLogger.logParseResult(false, null, "1_5_FAIL: pickup=${pickupCandidates.size} dropoff=${dropoffCandidates.size}")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "1.5순위 탐색 실패: ${e.message}")
         }
 
         // 2순위: 전체 화면 ViewId
