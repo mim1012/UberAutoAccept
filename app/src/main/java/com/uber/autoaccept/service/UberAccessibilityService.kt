@@ -15,6 +15,7 @@ import com.uber.autoaccept.model.*
 import com.uber.autoaccept.state.*
 import com.uber.autoaccept.utils.OfferCardDetector
 import com.uber.autoaccept.utils.ScreenshotManager
+import com.uber.autoaccept.utils.UberOfferGate
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.*
 import org.opencv.android.OpenCVLoader
@@ -29,7 +30,7 @@ class UberAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "UberAccessibilityService"
-        private const val UBER_PACKAGE = "com.ubercab.driver"
+        private const val UBER_PACKAGE = UberOfferGate.UBER_DRIVER_PACKAGE
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -170,8 +171,10 @@ class UberAccessibilityService : AccessibilityService() {
             serviceScope.launch {
                 delay(300)
                 if (stateMachine.getCurrentState() is AppState.Online) {
-                    val offerRoot = findOfferWindow()
+                    RemoteLogger.logOfferDetection("startup_scan", "service_connected", true)
+                    val offerRoot = findOfferWindow("service_connected")
                     if (offerRoot != null) {
+                        RemoteLogger.logOfferDetection("trigger_parse", "service_connected", true)
                         Log.i(TAG, "재접속 시 오퍼 즉시 감지")
                         stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
                     }
@@ -237,7 +240,7 @@ class UberAccessibilityService : AccessibilityService() {
                                 if (nodeOk) root = stored
                             }
                             // 2순위: stored node 무효 시 findOfferWindow() fallback
-                            if (root == null) root = findOfferWindow()
+                            if (root == null) root = findOfferWindow("offer_detected_fallback")
                             // childCnt=1 빈 트리 감지: React Native 렌더 전환 중 → 최대 3회 대기 후 재탐색
                             var waitAttempt = 0
                             while (root != null && root.childCount <= 1 &&
@@ -246,7 +249,7 @@ class UberAccessibilityService : AccessibilityService() {
                                 waitAttempt++
                                 Log.w(TAG, "[PARSE] childCnt=${root.childCount} 빈 트리 감지 → 300ms 대기 후 재탐색 ($waitAttempt/3)")
                                 delay(300)
-                                root = findOfferWindow()
+                                root = findOfferWindow("offer_detected_retry")
                             }
                             root
                         } else {
@@ -277,8 +280,10 @@ class UberAccessibilityService : AccessibilityService() {
             while (isActive) {
                 delay(10_000)
                 if (stateMachine.getCurrentState() is AppState.Online && ServiceState.isActive()) {
-                    val offerRoot = findOfferWindow()
+                    RemoteLogger.logOfferDetection("watchdog_scan", "watchdog", true)
+                    val offerRoot = findOfferWindow("watchdog")
                     if (offerRoot != null) {
+                        RemoteLogger.logOfferDetection("trigger_parse", "watchdog", true)
                         Log.i(TAG, "[WATCHDOG] Online 상태 오퍼 감지 → 파싱 시작")
                         stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
                     }
@@ -319,6 +324,15 @@ class UberAccessibilityService : AccessibilityService() {
             "hasText" to (event.text?.joinToString("|")?.take(80) ?: "")
         ))
         if (currentState is AppState.Online) RemoteLogger.flushNow()
+        RemoteLogger.logOfferDetection(
+            stage = "window_state_received",
+            source = "window_state_changed",
+            success = true,
+            details = mapOf(
+                "class_name" to className,
+                "package_name" to packageName
+            )
+        )
 
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
@@ -331,9 +345,7 @@ class UberAccessibilityService : AccessibilityService() {
         }
 
         // 콜 카드 className 게이트 — 리버스 엔지니어링으로 확인된 클래스명
-        val isOfferCardClass = className.contains("CardJobOfferView", ignoreCase = false) ||
-            className.contains("upfront_driver_assignment_offer_card", ignoreCase = false) ||
-            className.contains("UpfrontOfferView", ignoreCase = false)
+        val isOfferCardClass = UberOfferGate.isOfferWindowStateClass(event.className)
 
         // Online 상태에서 새 윈도우가 뜨면 짧은 딜레이 후 오퍼 감지 시도
         // isOfferCardClass이면 즉시 처리, 아니면 findOfferWindow로 확인
@@ -343,19 +355,34 @@ class UberAccessibilityService : AccessibilityService() {
                 if (isOfferCardClass) {
                     // 확정 — 콜 카드 className 감지. 렌더링 대기 후 파싱
                     Log.i("UAA", "[OFFER] 콜 카드 className 감지: $className")
+                    RemoteLogger.logOfferDetection(
+                        stage = "class_gate_match",
+                        source = "window_state_changed",
+                        success = true,
+                        details = mapOf("class_name" to className)
+                    )
                     RemoteLogger.flushNow() // WSC diagnostic 로그 즉시 전송
                     delay(100)
-                    val offerRoot = findOfferWindow()
+                    val offerRoot = findOfferWindow("window_state_class_gate")
                     if (offerRoot != null && stateMachine.getCurrentState() is AppState.Online) {
                         Log.i("UAA", "[OFFER] 콜 카드 확정 → 파싱 시작")
+                        RemoteLogger.logOfferDetection("trigger_parse", "window_state_class_gate", true)
                         stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
+                    } else {
+                        Log.w(TAG, "[WSC] className matched but offer markers were not confirmed")
+                        RemoteLogger.logOfferDetection(
+                            stage = "class_gate_unconfirmed",
+                            source = "window_state_class_gate",
+                            success = false,
+                            details = mapOf("class_name" to className)
+                        )
                     }
                 } else {
                     // 비확정 — 기존 방식 (3회 retry)
                     repeat(3) { attempt ->
                         delay(50)
                         if (stateMachine.getCurrentState() is AppState.Online) {
-                            val offerRoot = findOfferWindow()
+                            val offerRoot = findOfferWindow("window_state_retry")
                             if (offerRoot != null) {
                                 Log.i(TAG, "오퍼 감지 (STATE_CHANGED, attempt=${attempt + 1})")
                                 Log.i("UAA", "[OFFER] 오퍼 화면 감지 (attempt=${attempt + 1}) → 파싱 시작")
@@ -394,8 +421,10 @@ class UberAccessibilityService : AccessibilityService() {
             offerDetectionJob = serviceScope.launch {
                 delay(50)
                 if (stateMachine.getCurrentState() !is AppState.Online) return@launch
-                val offerRoot = findOfferWindow()
+                RemoteLogger.logOfferDetection("content_changed_received", "window_content_changed", true)
+                val offerRoot = findOfferWindow("window_content_changed")
                 if (offerRoot != null) {
+                    RemoteLogger.logOfferDetection("trigger_parse", "window_content_changed", true)
                     Log.i(TAG, "🔔 새로운 오퍼 감지!")
                     Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 → 파싱 시작")
                     stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot))
@@ -438,7 +467,7 @@ class UberAccessibilityService : AccessibilityService() {
      * - 비오퍼 화면(운행 리스트, 새로운 콜 배너 등) 제외
      * - 오퍼 화면 로딩 완료 확인 후 반환 ("대한민국" 주소 2개 이상)
      */
-    private suspend fun findOfferWindow(): android.view.accessibility.AccessibilityNodeInfo? {
+    private suspend fun findOfferWindow(source: String): android.view.accessibility.AccessibilityNodeInfo? {
         val helper = com.uber.autoaccept.utils.AccessibilityHelper
         val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
             ?: listOfNotNull(rootInActiveWindow)
@@ -460,8 +489,34 @@ class UberAccessibilityService : AccessibilityService() {
         // 1단계: "콜 수락" 즉시 탐색 — 비오퍼 화면 제외 후 반환
         for (root in roots) {
             if (isNonOfferRoot(root)) continue
+            val offerMarker = helper.findFirstNodeByViewIds(root, UberOfferGate.allMarkerViewIds())
+            if (offerMarker != null) {
+                val markerId = offerMarker.first
+                val strongMarker = UberOfferGate.confirmationMarkers(listOf(markerId)).isNotEmpty()
+                Log.i(TAG, "[OFFER_GATE] confirmed by viewId=$markerId strong=$strongMarker")
+                RemoteLogger.logOfferDetection(
+                    stage = "viewid_gate_confirmed",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "view_id" to markerId,
+                        "strong_marker" to strongMarker,
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    )
+                )
+                return root
+            }
             if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
                 Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} (콜수락 즉시 감지)")
+                RemoteLogger.logOfferDetection(
+                    stage = "text_gate_confirmed",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "text" to "콜 수락",
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    )
+                )
                 return root
             }
         }
@@ -480,16 +535,44 @@ class UberAccessibilityService : AccessibilityService() {
                     if (addrNodes.isNotEmpty()) { cityFound = true; break }
                 } catch (_: Exception) {}
             }
-            if (cityFound) return root
+            if (cityFound) {
+                RemoteLogger.logOfferDetection(
+                    stage = "address_gate_confirmed",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "match_type" to "city_keyword",
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    )
+                )
+                return root
+            }
 
             // 3순위: ViewId 기반 감지 (health 로깅 겸용)
             val pickupNode = helper.findNodeByViewId(root, "uda_details_pickup_address_text_view")
             val dropoffNode = helper.findNodeByViewId(root, "uda_details_dropoff_address_text_view")
             RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
             RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
-            if (pickupNode != null && dropoffNode != null) return root
+            if (pickupNode != null && dropoffNode != null) {
+                RemoteLogger.logOfferDetection(
+                    stage = "address_gate_confirmed",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "match_type" to "pickup_dropoff_viewids",
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    )
+                )
+                return root
+            }
 
         }
+        RemoteLogger.logOfferDetection(
+            stage = "offer_window_not_found",
+            source = source,
+            success = false,
+            details = mapOf("root_count" to roots.size)
+        )
         return null
     }
 

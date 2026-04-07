@@ -7,7 +7,6 @@ import com.uber.autoaccept.logging.RemoteLogger
 
 object AccessibilityHelper {
     private const val TAG = "AccessibilityHelper"
-    private const val UBER_PACKAGE = "com.ubercab.driver"
 
     // Key ViewIds to track health for
     private val TRACKED_VIEW_IDS = setOf(
@@ -25,7 +24,7 @@ object AccessibilityHelper {
 
     fun findNodeByViewId(rootNode: AccessibilityNodeInfo?, viewId: String): AccessibilityNodeInfo? {
         if (rootNode == null) return null
-        val fullViewId = "$UBER_PACKAGE:id/$viewId"
+        val fullViewId = "${UberOfferGate.UBER_DRIVER_PACKAGE}:id/$viewId"
         return try {
             val node = rootNode.findAccessibilityNodeInfosByViewId(fullViewId).firstOrNull()
             if (viewId in TRACKED_VIEW_IDS) {
@@ -39,6 +38,15 @@ object AccessibilityHelper {
             }
             null
         }
+    }
+
+    fun findFirstNodeByViewIds(rootNode: AccessibilityNodeInfo?, viewIds: Iterable<String>): Pair<String, AccessibilityNodeInfo>? {
+        if (rootNode == null) return null
+        for (viewId in viewIds) {
+            val node = findNodeByViewId(rootNode, viewId)
+            if (node != null) return viewId to node
+        }
+        return null
     }
     
     fun findNodeByText(rootNode: AccessibilityNodeInfo?, text: String, exactMatch: Boolean = false): AccessibilityNodeInfo? {

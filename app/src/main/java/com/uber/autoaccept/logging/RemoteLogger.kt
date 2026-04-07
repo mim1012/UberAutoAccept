@@ -210,6 +210,25 @@ object RemoteLogger {
         ))
     }
 
+    fun logOfferDetection(
+        stage: String,
+        source: String,
+        success: Boolean,
+        details: Map<String, Any?> = emptyMap()
+    ) {
+        enqueue(LogEntry(
+            type = LogType.DEBUG,
+            data = mapOf(
+                "event_type" to "offer_detection",
+                "stage" to stage,
+                "source" to source,
+                "success" to success,
+                "state" to (currentStateSupplier?.invoke() ?: "unknown"),
+                "timestamp" to System.currentTimeMillis()
+            ) + details
+        ))
+    }
+
     fun logShizukuBind(success: Boolean, latencyMs: Long, error: String? = null) {
         enqueue(LogEntry(
             type = LogType.SHIZUKU,
