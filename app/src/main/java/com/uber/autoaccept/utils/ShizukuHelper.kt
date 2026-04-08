@@ -28,11 +28,24 @@ object ShizukuHelper {
     private var userService: IShizukuService? = null
     private var bindStartTime: Long = 0L
 
+    private enum class ShizukuState {
+        UNAVAILABLE,
+        AVAILABLE_NO_PERMISSION,
+        AVAILABLE_PERMISSION_NO_SERVICE,
+        BOUND_OK,
+        BOUND_STALE
+    }
+
     private val retryHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingRetry: Runnable? = null
     private var retryDelayMs: Long = 3000L
+    private var availabilityBurstAttempts: Int = 0
+    private var lastBindAttemptAt: Long = 0L
     private const val RETRY_MIN_MS = 3000L
     private const val RETRY_MAX_MS = 30000L
+    private const val AVAILABILITY_BURST_LIMIT = 4
+    private const val AVAILABILITY_BURST_DELAY_MS = 1500L
+    private const val BIND_THROTTLE_MS = 1200L
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -41,6 +54,7 @@ object ShizukuHelper {
                 userService = IShizukuService.Stub.asInterface(binder)
                 Log.i(TAG, "UserService connected (${latency}ms)")
                 RemoteLogger.logShizukuBind(true, latency)
+                availabilityBurstAttempts = 0
                 cancelPendingRetry()
                 retryDelayMs = RETRY_MIN_MS
             } else {
@@ -81,7 +95,28 @@ object ShizukuHelper {
         false
     }
 
-    fun isServiceBound(): Boolean = userService != null
+    fun isServiceBound(): Boolean = currentState() == ShizukuState.BOUND_OK
+
+    private fun currentState(): ShizukuState {
+        val available = isAvailable()
+        if (!available) return ShizukuState.UNAVAILABLE
+
+        val svc = userService
+        if (svc != null) {
+            return try {
+                val binder = svc.asBinder()
+                if (binder != null && binder.pingBinder()) ShizukuState.BOUND_OK else ShizukuState.BOUND_STALE
+            } catch (_: Exception) {
+                ShizukuState.BOUND_STALE
+            }
+        }
+
+        return if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            ShizukuState.AVAILABLE_PERMISSION_NO_SERVICE
+        } else {
+            ShizukuState.AVAILABLE_NO_PERMISSION
+        }
+    }
 
     fun requestPermissionIfNeeded() {
         if (!isAvailable()) {
@@ -111,26 +146,59 @@ object ShizukuHelper {
 
     /** 순수 바인딩 시도 (리스너 등록 없이) — 재바인딩에도 사용 */
     private fun tryBind(trigger: String = "manual") {
-        val available = isAvailable()
-        val perm = hasPermission()
-        val bound = userService != null
-        RemoteLogger.logShizukuRebind(trigger, perm, bound,
-            mapOf("available" to available))
+        val now = System.currentTimeMillis()
+        if (now - lastBindAttemptAt < BIND_THROTTLE_MS && !trigger.startsWith("retry_")) {
+            Log.d(TAG, "bind throttled — trigger=$trigger")
+            return
+        }
+        lastBindAttemptAt = now
 
-        if (!perm) {
-            Log.w(TAG, "Shizuku 바인딩 불가 — available=$available, perm=$perm (trigger=$trigger) — ${retryDelayMs}ms 후 재시도")
-            scheduleRetry("no_permission")
-            return
+        val state = currentState()
+        val available = state != ShizukuState.UNAVAILABLE
+        val perm = state == ShizukuState.AVAILABLE_PERMISSION_NO_SERVICE || state == ShizukuState.BOUND_OK || state == ShizukuState.BOUND_STALE
+        val bound = state == ShizukuState.BOUND_OK
+        RemoteLogger.logShizukuRebind(trigger, perm, bound,
+            mapOf("available" to available, "state" to state.name, "burst_attempts" to availabilityBurstAttempts))
+
+        when (state) {
+            ShizukuState.UNAVAILABLE -> {
+                userService = null
+                if (availabilityBurstAttempts < AVAILABILITY_BURST_LIMIT) {
+                    availabilityBurstAttempts += 1
+                    Log.w(TAG, "Shizuku binder 미수신 — 빠른 재시도 ${availabilityBurstAttempts}/$AVAILABILITY_BURST_LIMIT (trigger=$trigger)")
+                    scheduleRebind(AVAILABILITY_BURST_DELAY_MS, "binder_unavailable")
+                } else {
+                    Log.w(TAG, "Shizuku binder 미수신 지속 — 백오프 재시도 전환 (trigger=$trigger)")
+                    scheduleRetry("binder_unavailable")
+                }
+                return
+            }
+            ShizukuState.AVAILABLE_NO_PERMISSION -> {
+                availabilityBurstAttempts = 0
+                Log.w(TAG, "Shizuku 권한 없음 (trigger=$trigger) — ${retryDelayMs}ms 후 재시도")
+                scheduleRetry("no_permission")
+                return
+            }
+            ShizukuState.BOUND_OK -> {
+                availabilityBurstAttempts = 0
+                Log.d(TAG, "이미 바인딩됨 — 스킵")
+                cancelPendingRetry()
+                return
+            }
+            ShizukuState.BOUND_STALE -> {
+                Log.w(TAG, "Stale binder 감지 — userService 초기화 후 재바인딩")
+                userService = null
+            }
+            ShizukuState.AVAILABLE_PERMISSION_NO_SERVICE -> {
+                // proceed to bind
+            }
         }
-        if (bound) {
-            Log.d(TAG, "이미 바인딩됨 — 스킵")
-            cancelPendingRetry()
-            return
-        }
+
+        availabilityBurstAttempts = 0
         try {
             bindStartTime = System.currentTimeMillis()
             Shizuku.bindUserService(userServiceArgs, serviceConnection)
-            Log.i(TAG, "bindUserService 요청 (trigger=$trigger)")
+            Log.i(TAG, "bindUserService 요청 (trigger=$trigger, state=$state)")
         } catch (e: Exception) {
             Log.e(TAG, "bindUserService 실패: ${e.message}")
             RemoteLogger.logShizukuBind(false, 0, e.message)
