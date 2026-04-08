@@ -139,6 +139,7 @@ object RemoteLogger {
                 "trigger" to trigger,
                 "success" to success,
                 "shizuku_bound" to com.uber.autoaccept.utils.ShizukuHelper.isServiceBound(),
+                "shizuku_state" to com.uber.autoaccept.utils.ShizukuHelper.currentStateName(),
                 "service_active" to com.uber.autoaccept.service.ServiceState.isActive(),
                 "timestamp" to System.currentTimeMillis()
             ) + details
@@ -242,7 +243,14 @@ object RemoteLogger {
         ))
     }
 
-    fun logShizukuTap(success: Boolean, latencyMs: Long, x: Int, y: Int, times: Int) {
+    fun logShizukuTap(
+        success: Boolean,
+        latencyMs: Long,
+        x: Int,
+        y: Int,
+        times: Int,
+        extra: Map<String, Any?> = emptyMap()
+    ) {
         enqueue(LogEntry(
             type = LogType.SHIZUKU,
             data = mapOf(
@@ -253,7 +261,7 @@ object RemoteLogger {
                 "y" to y,
                 "times" to times,
                 "timestamp" to System.currentTimeMillis()
-            )
+            ) + extra
         ))
     }
 
@@ -279,6 +287,18 @@ object RemoteLogger {
                 "already_bound" to alreadyBound,
                 "timestamp" to System.currentTimeMillis()
             ) + extra
+        ))
+    }
+
+    fun logShizukuState(state: String, reason: String, details: Map<String, Any?> = emptyMap()) {
+        enqueue(LogEntry(
+            type = LogType.SHIZUKU,
+            data = mapOf(
+                "event_type" to "state",
+                "state" to state,
+                "reason" to reason,
+                "timestamp" to System.currentTimeMillis()
+            ) + details
         ))
     }
 

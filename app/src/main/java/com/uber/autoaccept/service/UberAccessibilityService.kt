@@ -15,6 +15,7 @@ import com.uber.autoaccept.model.*
 import com.uber.autoaccept.state.*
 import com.uber.autoaccept.utils.OfferCardDetector
 import com.uber.autoaccept.utils.ScreenshotManager
+import com.uber.autoaccept.utils.ShizukuConnectionManager
 import com.uber.autoaccept.utils.UberOfferGate
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.*
@@ -56,6 +57,7 @@ class UberAccessibilityService : AccessibilityService() {
             Log.i(TAG, "Config reload requested")
             config = loadConfig()
             filterEngine = FilterEngine(config.filterSettings)
+            ShizukuConnectionManager.refreshConfig(config.enableShizuku, "config_reload")
             registerStateHandlers()
         }
     }
@@ -72,12 +74,12 @@ class UberAccessibilityService : AccessibilityService() {
             val (tx, ty) = lpToClickCoord(lpX, lpY)
             Log.i("UAA", "[TEST] 테스트 탭 실행: lp=($lpX,$lpY) → click=($tx,$ty)")
 
-            if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
+            if (ShizukuConnectionManager.hasPermission()) {
                 // Shizuku: input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
                 serviceScope.launch {
                     FloatingWidgetService.disableTargetTouch()
-                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(tx, ty)
-                    Log.i("UAA", "[TEST] Shizuku tap ${if (ok) "✅" else "❌"} ($tx,$ty)")
+                    val result = ShizukuConnectionManager.executeTap(tx, ty)
+                    Log.i("UAA", "[TEST] Shizuku tap ${if (result.success) "✅" else "❌"} ($tx,$ty) reason=${result.reason}")
                     FloatingWidgetService.enableTargetTouch()
                 }
             } else {
@@ -145,9 +147,7 @@ class UberAccessibilityService : AccessibilityService() {
         RemoteLogger.flushNow()
 
         // Shizuku UserService 바인딩
-        if (config.enableShizuku) {
-            com.uber.autoaccept.utils.ShizukuHelper.bindService()
-        }
+        ShizukuConnectionManager.start(config.enableShizuku, "service_connected")
 
         // OpenCV 초기화
         screenshotManager = ScreenshotManager(this)
@@ -635,9 +635,7 @@ class UberAccessibilityService : AccessibilityService() {
         }
 
         // Shizuku 재바인딩 시도
-        if (config.enableShizuku) {
-            com.uber.autoaccept.utils.ShizukuHelper.bindService()
-        }
+        ShizukuConnectionManager.refreshConfig(config.enableShizuku, "on_interrupt")
     }
 
     override fun onDestroy() {
@@ -645,7 +643,7 @@ class UberAccessibilityService : AccessibilityService() {
         ServiceState.setAccessibilityConnected(false)
         try { unregisterReceiver(configReloadReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(testTapReceiver) } catch (_: Exception) {}
-        com.uber.autoaccept.utils.ShizukuHelper.unbindService()
+        ShizukuConnectionManager.stop("service_destroyed")
         RemoteLogger.logServiceDisconnected("onDestroy")
         RemoteLogger.shutdown()
         serviceScope.cancel()
