@@ -5,6 +5,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
+import com.uber.autoaccept.utils.ShizukuConnectionManager
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
@@ -157,18 +158,18 @@ class AcceptingHandler : BaseStateHandler() {
         var method = "unknown"
 
         // 1차: Shizuku input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
-        if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
-            val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
-            if (ok) {
+        if (ShizukuConnectionManager.hasPermission()) {
+            val result = ShizukuConnectionManager.executeTap(target.x, target.y)
+            if (result.success) {
                 Log.i("UAA", "[ACCEPT] Shizuku 탭 ✅ (${target.x},${target.y})")
                 com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-                RemoteLogger.logActionResult("accept", true, "shizuku_tap(${target.x},${target.y})")
+                RemoteLogger.logActionResult("accept", true, "shizuku_${result.reason}(${target.x},${target.y})")
                 return StateEvent.AcceptSuccess("shizuku_tap")
             }
             // Shizuku 탭 실패 → dispatchGesture fallback
-            Log.w("UAA", "[ACCEPT] Shizuku 탭 ❌ → dispatchGesture fallback")
-            RemoteLogger.logActionResult("accept", false, "shizuku_tap_failed→fallback")
-            method = "shizuku_fail→dispatch"
+            Log.w("UAA", "[ACCEPT] Shizuku 탭 ❌ → dispatchGesture fallback (${result.reason})")
+            RemoteLogger.logActionResult("accept", false, "shizuku_${result.reason}→fallback")
+            method = "shizuku_${result.reason}→dispatch"
         } else {
             Log.w("UAA", "[ACCEPT] Shizuku 미사용 → dispatchGesture fallback")
             method = "no_shizuku→dispatch"
