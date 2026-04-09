@@ -5,11 +5,9 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
+import com.uber.autoaccept.utils.GestureClicker
 import com.uber.autoaccept.utils.UberOfferParser
-import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeout
 
 /**
  * OfferDetected 상태 핸들러
@@ -145,67 +143,122 @@ class AcceptingHandler : BaseStateHandler() {
 
         val target = targetClickPoint
         val svc = serviceRef
-
-        if (target == null || svc == null) {
-            Log.e("UAA", "[ACCEPT] ❌ 타겟 좌표 없음 — ⊕ 먼저 배치하세요")
-            RemoteLogger.logActionResult("accept", false, "타겟좌표 없음")
-            return StateEvent.ErrorOccurred("타겟 좌표 미설정")
-        }
+        val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
 
         com.uber.autoaccept.service.FloatingWidgetService.disableTargetTouch()
+        try {
+            if (target != null && svc != null) {
+                var method = "unknown"
 
-        var method = "unknown"
+                // 1차: 사용자 지정 타겟을 Shizuku로 직접 탭
+                if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
+                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
+                    if (ok) {
+                        Log.i("UAA", "[ACCEPT] Shizuku 탭 ✅ (${target.x},${target.y})")
+                        RemoteLogger.logActionResult("accept", true, "shizuku_tap(${target.x},${target.y})")
+                        return StateEvent.AcceptSuccess("shizuku_tap")
+                    }
+                    Log.w("UAA", "[ACCEPT] Shizuku 탭 ❌ → gesture/node fallback")
+                    RemoteLogger.logActionResult("accept", false, "shizuku_tap_failed→fallback")
+                    method = "shizuku_fail→dispatch"
+                } else {
+                    Log.w("UAA", "[ACCEPT] Shizuku 미사용 → gesture/node fallback")
+                    method = "no_shizuku→dispatch"
+                }
 
-        // 1차: Shizuku input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
-        if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
-            val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
-            if (ok) {
-                Log.i("UAA", "[ACCEPT] Shizuku 탭 ✅ (${target.x},${target.y})")
-                com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-                RemoteLogger.logActionResult("accept", true, "shizuku_tap(${target.x},${target.y})")
-                return StateEvent.AcceptSuccess("shizuku_tap")
+                if (GestureClicker.click(svc, target.x, target.y, humanize = false)) {
+                    Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
+                    RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
+                    return StateEvent.AcceptSuccess(method)
+                }
+
+                Log.w("UAA", "[ACCEPT] 타겟 좌표 gesture 실패 → 노드 기반 fallback 계속")
+                RemoteLogger.logActionResult("accept", false, "dispatch_failed(${target.x},${target.y})[$method]")
+            } else {
+                Log.w("UAA", "[ACCEPT] 타겟 좌표/서비스 미주입 → 노드 기반 fallback만 사용")
             }
-            // Shizuku 탭 실패 → dispatchGesture fallback
-            Log.w("UAA", "[ACCEPT] Shizuku 탭 ❌ → dispatchGesture fallback")
-            RemoteLogger.logActionResult("accept", false, "shizuku_tap_failed→fallback")
-            method = "shizuku_fail→dispatch"
-        } else {
-            Log.w("UAA", "[ACCEPT] Shizuku 미사용 → dispatchGesture fallback")
-            method = "no_shizuku→dispatch"
-        }
 
-        // 2차: dispatchGesture fallback — 콜백 완료까지 대기
-        // Uber 앱이 de_global_tap_block_accessibility_assisted_csv 피처 플래그로
-        // FLAG_IS_GENERATED_BY_ACCESSIBILITY 탭을 차단 가능. Shizuku 사용 권장.
-        val path = android.graphics.Path().apply { moveTo(target.x, target.y) }
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 50L)
-        val dispatched = try {
-            withTimeout(3000L) { suspendCancellableCoroutine<Boolean> { cont ->
-                svc.dispatchGesture(
-                    android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
-                    object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                        override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                            Log.i("UAA", "[ACCEPT] dispatchGesture ✅ (${target.x},${target.y})")
-                            RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
-                            if (cont.isActive) cont.resume(true)
-                        }
-                        override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                            Log.w("UAA", "[ACCEPT] dispatchGesture ❌ cancelled (${target.x},${target.y})")
-                            RemoteLogger.logActionResult("accept", false, "dispatch_cancelled(${target.x},${target.y})[$method]")
-                            if (cont.isActive) cont.resume(false)
-                        }
-                    }, null
-                )
-            } }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.w("UAA", "[ACCEPT] dispatchGesture ⏱ timeout (${target.x},${target.y})")
-            RemoteLogger.logActionResult("accept", false, "dispatch_timeout[$method]")
-            false
-        }
+            // 2차: 파싱 시점에 저장된 노드 사용
+            val storedButton = state.offer.acceptButtonNode
+            if (storedButton != null &&
+                com.uber.autoaccept.utils.AccessibilityHelper.isNodeValid(storedButton) &&
+                storedButton.isClickable
+            ) {
+                if (storedButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    Log.i(TAG, "✅ 수락 버튼 클릭 성공 (저장된 노드)")
+                    RemoteLogger.logActionResult("accept", true, "stored_node")
+                    return StateEvent.AcceptSuccess("stored_node")
+                }
+                Log.w(TAG, "저장된 노드 클릭 실패, 추가 fallback 시도...")
+            }
 
-        com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
-        return if (dispatched) StateEvent.AcceptSuccess(method)
-               else StateEvent.ErrorOccurred("dispatch_cancelled[$method]")
+            if (searchRoots.isEmpty()) {
+                Log.e(TAG, "❌ 탐색 가능한 윈도우 없음")
+                return StateEvent.ErrorOccurred("수락 버튼 없음")
+            }
+
+            // 3차: 모든 윈도우에서 ViewId로 탐색
+            for (root in searchRoots) {
+                for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
+                    val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
+                    if (btn != null && btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (ViewId: $viewId)")
+                        RemoteLogger.logActionResult("accept", true, "view_id($viewId)")
+                        return StateEvent.AcceptSuccess("view_id($viewId)")
+                    }
+                }
+            }
+
+            // 4차: 텍스트 기반 클릭
+            for (root in searchRoots) {
+                for (text in ACCEPT_BUTTON_TEXTS) {
+                    val node = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, text)
+                    val btn = com.uber.autoaccept.utils.AccessibilityHelper.findClickableNode(node) ?: node
+                    if (btn != null && btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "✅ 수락 버튼 클릭 성공 (텍스트: $text)")
+                        RemoteLogger.logActionResult("accept", true, "text($text)")
+                        return StateEvent.AcceptSuccess("text($text)")
+                    }
+                }
+            }
+
+            // 5차: 노드 중심 좌표 gesture fallback
+            if (svc != null) {
+                Log.d(TAG, "노드 기반 gesture fallback 시도...")
+
+                for (root in searchRoots) {
+                    for (viewId in ACCEPT_BUTTON_VIEW_IDS) {
+                        val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
+                        if (btn != null && GestureClicker.clickNode(svc, btn)) {
+                            delay(300)
+                            Log.i(TAG, "✅ 수락 성공 (Gesture ViewId: $viewId)")
+                            RemoteLogger.logActionResult("accept", true, "gesture_view_id($viewId)")
+                            return StateEvent.AcceptSuccess("gesture_view_id($viewId)")
+                        }
+                    }
+                }
+
+                for (root in searchRoots) {
+                    for (text in ACCEPT_BUTTON_TEXTS) {
+                        val node = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, text)
+                        if (node != null && GestureClicker.clickNode(svc, node)) {
+                            delay(300)
+                            Log.i(TAG, "✅ 수락 성공 (Gesture 텍스트: $text)")
+                            RemoteLogger.logActionResult("accept", true, "gesture_text($text)")
+                            return StateEvent.AcceptSuccess("gesture_text($text)")
+                        }
+                    }
+                }
+            } else {
+                Log.w(TAG, "⚠️ AccessibilityService 미주입 — gesture fallback 스킵")
+            }
+
+            Log.e(TAG, "❌ 모든 fallback 실패 (윈도우: ${searchRoots.size})")
+            RemoteLogger.logActionResult("accept", false, "all_fallbacks_failed(window:${searchRoots.size})")
+            return StateEvent.ErrorOccurred("수락 버튼 클릭 불가")
+        } finally {
+            com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
+        }
     }
 }
 
