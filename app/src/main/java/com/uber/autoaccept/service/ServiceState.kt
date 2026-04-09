@@ -2,6 +2,7 @@ package com.uber.autoaccept.service
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.uber.autoaccept.logging.RemoteLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,14 +32,28 @@ object ServiceState {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    fun start() {
+    fun start(source: String = "unknown") {
         _active.value = true
         prefs?.edit()?.putBoolean(KEY_LAST_ACTIVE, true)?.apply()
+        RemoteLogger.logServiceStateChange(
+            active = true,
+            source = source,
+            details = mapOf(
+                "accessibility_connected" to _accessibilityConnected.value
+            )
+        )
     }
 
-    fun stop() {
+    fun stop(source: String = "unknown") {
         _active.value = false
         prefs?.edit()?.putBoolean(KEY_LAST_ACTIVE, false)?.apply()
+        RemoteLogger.logServiceStateChange(
+            active = false,
+            source = source,
+            details = mapOf(
+                "accessibility_connected" to _accessibilityConnected.value
+            )
+        )
     }
 
     fun isActive(): Boolean = _active.value

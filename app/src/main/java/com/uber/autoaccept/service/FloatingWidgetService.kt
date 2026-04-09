@@ -15,6 +15,7 @@ import android.view.*
 import android.widget.Button
 import android.widget.TextView
 import com.uber.autoaccept.R
+import com.uber.autoaccept.logging.RemoteLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -98,13 +99,31 @@ class FloatingWidgetService : Service() {
         val testBtn = floatingView!!.findViewById<Button>(R.id.floating_test_btn)
 
         startBtn.setOnClickListener {
+            RemoteLogger.logEngineCommand(
+                source = "floating_widget_button",
+                action = "start_click",
+                details = mapOf(
+                    "active_before" to ServiceState.isActive(),
+                    "overlay_visible" to true
+                )
+            )
             sendEngineCommand("com.uber.autoaccept.ACTION_ENGINE_START")
             reloadAccessibilityConfig()
+            RemoteLogger.flushNow()
             Log.i(TAG, "Start requested")
         }
 
         stopBtn.setOnClickListener {
+            RemoteLogger.logEngineCommand(
+                source = "floating_widget_button",
+                action = "stop_click",
+                details = mapOf(
+                    "active_before" to ServiceState.isActive(),
+                    "overlay_visible" to true
+                )
+            )
             sendEngineCommand("com.uber.autoaccept.ACTION_ENGINE_STOP")
+            RemoteLogger.flushNow()
             Log.i(TAG, "Stop requested")
         }
 
@@ -273,6 +292,13 @@ class FloatingWidgetService : Service() {
     private fun sendEngineCommand(action: String) {
         val intent = Intent(action)
         intent.setPackage(packageName)
+        RemoteLogger.logEngineCommand(
+            source = "floating_widget_broadcast",
+            action = action,
+            details = mapOf(
+                "active_before" to ServiceState.isActive()
+            )
+        )
         sendBroadcast(intent)
     }
 

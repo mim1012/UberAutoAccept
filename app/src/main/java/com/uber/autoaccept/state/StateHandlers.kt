@@ -144,6 +144,15 @@ class AcceptingHandler : BaseStateHandler() {
         val target = targetClickPoint
         val svc = serviceRef
         val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
+        RemoteLogger.logDiagnostic(
+            "accept_handler_entered",
+            mapOf(
+                "has_target_point" to (target != null),
+                "has_service_ref" to (svc != null),
+                "search_root_count" to searchRoots.size,
+                "stored_button_present" to (state.offer.acceptButtonNode != null)
+            )
+        )
 
         com.uber.autoaccept.service.FloatingWidgetService.disableTargetTouch()
         try {
@@ -174,6 +183,7 @@ class AcceptingHandler : BaseStateHandler() {
 
                 Log.w("UAA", "[ACCEPT] 타겟 좌표 gesture 실패 → 노드 기반 fallback 계속")
                 RemoteLogger.logActionResult("accept", false, "dispatch_failed(${target.x},${target.y})[$method]")
+                RemoteLogger.logDiagnostic("accept_target_dispatch_failed", mapOf("method" to method, "target_x" to target.x, "target_y" to target.y))
             } else {
                 Log.w("UAA", "[ACCEPT] 타겟 좌표/서비스 미주입 → 노드 기반 fallback만 사용")
             }

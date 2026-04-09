@@ -161,6 +161,31 @@ object RemoteLogger {
         ))
     }
 
+    fun logEngineCommand(source: String, action: String, details: Map<String, Any?> = emptyMap()) {
+        enqueue(LogEntry(
+            type = LogType.LIFECYCLE,
+            data = mapOf(
+                "event_type" to "engine_command",
+                "source" to source,
+                "action" to action,
+                "service_active" to com.uber.autoaccept.service.ServiceState.isActive(),
+                "timestamp" to System.currentTimeMillis()
+            ) + details
+        ))
+    }
+
+    fun logServiceStateChange(active: Boolean, source: String, details: Map<String, Any?> = emptyMap()) {
+        enqueue(LogEntry(
+            type = LogType.LIFECYCLE,
+            data = mapOf(
+                "event_type" to "service_state_change",
+                "active" to active,
+                "source" to source,
+                "timestamp" to System.currentTimeMillis()
+            ) + details
+        ))
+    }
+
     fun logViewIdHealth(viewId: String, found: Boolean) {
         val lastState = viewIdLastState[viewId]
         if (lastState == found) return

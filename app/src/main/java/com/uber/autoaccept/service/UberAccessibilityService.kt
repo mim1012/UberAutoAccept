@@ -109,13 +109,23 @@ class UberAccessibilityService : AccessibilityService() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_ENGINE_START -> {
-                    ServiceState.start()
+                    RemoteLogger.logEngineCommand(
+                        source = "accessibility_receiver",
+                        action = ACTION_ENGINE_START,
+                        details = mapOf("accessibility_connected" to true)
+                    )
+                    ServiceState.start("accessibility_receiver:$ACTION_ENGINE_START")
                     RemoteLogger.logRecovery("engine", "explicit_start", true,
                         mapOf("accessibility_connected" to true))
                     Log.i("UAA", "[ENGINE] START 수신 → active=true")
                 }
                 ACTION_ENGINE_STOP -> {
-                    ServiceState.stop()
+                    RemoteLogger.logEngineCommand(
+                        source = "accessibility_receiver",
+                        action = ACTION_ENGINE_STOP,
+                        details = mapOf("accessibility_connected" to true)
+                    )
+                    ServiceState.stop("accessibility_receiver:$ACTION_ENGINE_STOP")
                     RemoteLogger.logRecovery("engine", "explicit_stop", true,
                         mapOf("accessibility_connected" to true))
                     Log.i("UAA", "[ENGINE] STOP 수신 → active=false")
