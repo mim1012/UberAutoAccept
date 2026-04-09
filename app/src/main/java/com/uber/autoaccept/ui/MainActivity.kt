@@ -311,7 +311,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopFloatingWidget() {
         stopService(Intent(this, FloatingWidgetService::class.java))
-        ServiceState.stop()
         floatingServiceRunning = false
         updateStartStopButton()
     }

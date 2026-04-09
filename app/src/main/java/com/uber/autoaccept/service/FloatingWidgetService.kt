@@ -98,14 +98,14 @@ class FloatingWidgetService : Service() {
         val testBtn = floatingView!!.findViewById<Button>(R.id.floating_test_btn)
 
         startBtn.setOnClickListener {
-            ServiceState.start()
+            sendEngineCommand("com.uber.autoaccept.ACTION_ENGINE_START")
             reloadAccessibilityConfig()
-            Log.i(TAG, "Started")
+            Log.i(TAG, "Start requested")
         }
 
         stopBtn.setOnClickListener {
-            ServiceState.stop()
-            Log.i(TAG, "Stopped")
+            sendEngineCommand("com.uber.autoaccept.ACTION_ENGINE_STOP")
+            Log.i(TAG, "Stop requested")
         }
 
         closeBtn.setOnClickListener {
@@ -270,6 +270,12 @@ class FloatingWidgetService : Service() {
         sendBroadcast(intent)
     }
 
+    private fun sendEngineCommand(action: String) {
+        val intent = Intent(action)
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
+    }
+
     private fun sendTestTap() {
         val intent = Intent("com.uber.autoaccept.TEST_TAP")
         intent.setPackage(packageName)
@@ -311,7 +317,6 @@ class FloatingWidgetService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        ServiceState.stop()
         scope.cancel()
         floatingView?.let { windowManager?.removeView(it) }
         floatingView = null

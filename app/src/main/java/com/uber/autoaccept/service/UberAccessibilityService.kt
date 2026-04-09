@@ -31,6 +31,8 @@ class UberAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "UberAccessibilityService"
         private const val UBER_PACKAGE = UberOfferGate.UBER_DRIVER_PACKAGE
+        private const val ACTION_ENGINE_START = "com.uber.autoaccept.ACTION_ENGINE_START"
+        private const val ACTION_ENGINE_STOP = "com.uber.autoaccept.ACTION_ENGINE_STOP"
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -103,6 +105,26 @@ class UberAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val engineControlReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_ENGINE_START -> {
+                    ServiceState.start()
+                    RemoteLogger.logRecovery("engine", "explicit_start", true,
+                        mapOf("accessibility_connected" to true))
+                    Log.i("UAA", "[ENGINE] START 수신 → active=true")
+                }
+                ACTION_ENGINE_STOP -> {
+                    ServiceState.stop()
+                    RemoteLogger.logRecovery("engine", "explicit_stop", true,
+                        mapOf("accessibility_connected" to true))
+                    Log.i("UAA", "[ENGINE] STOP 수신 → active=false")
+                }
+            }
+            RemoteLogger.flushNow()
+        }
+    }
+
     private fun lpToClickCoord(lpX: Float, lpY: Float): Pair<Float, Float> {
         val halfPx = resources.displayMetrics.density * 60f  // 120dp의 절반
         return Pair(lpX + halfPx, lpY + halfPx)
@@ -133,6 +155,13 @@ class UberAccessibilityService : AccessibilityService() {
         // TEST_TAP receiver 등록
         registerReceiver(testTapReceiver, IntentFilter("com.uber.autoaccept.TEST_TAP"),
             Context.RECEIVER_NOT_EXPORTED)
+
+        // 엔진 START/STOP은 접근성 서비스가 최종 소유
+        val engineFilter = IntentFilter().apply {
+            addAction(ACTION_ENGINE_START)
+            addAction(ACTION_ENGINE_STOP)
+        }
+        registerReceiver(engineControlReceiver, engineFilter, Context.RECEIVER_NOT_EXPORTED)
 
         // 원격 로깅 초기화 (Supabase 사용)
         RemoteLogger.initialize(this, config.deviceId, config.remoteLoggingEnabled)
@@ -645,6 +674,7 @@ class UberAccessibilityService : AccessibilityService() {
         ServiceState.setAccessibilityConnected(false)
         try { unregisterReceiver(configReloadReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(testTapReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(engineControlReceiver) } catch (_: Exception) {}
         com.uber.autoaccept.utils.ShizukuHelper.unbindService()
         RemoteLogger.logServiceDisconnected("onDestroy")
         RemoteLogger.shutdown()
