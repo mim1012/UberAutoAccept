@@ -17,8 +17,11 @@ android {
         applicationId "com.uber.autoaccept"
         minSdk 26
         targetSdk 34
-        versionCode 25
-        versionName "1.3.14"
+        // Allow CI to override version from -PversionName/-PversionCode
+        def vnProp = project.findProperty('versionName')
+        def vcProp = project.findProperty('versionCode')
+        versionName (vnProp ?: "1.3.14")
+        versionCode ((vcProp ?: 25).toString().toInteger())
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

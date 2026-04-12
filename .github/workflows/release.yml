@@ -35,17 +35,28 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> local.properties
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> local.properties
 
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Compute versionCode
+        id: vcode
+        run: |
+          V="${{ steps.version.outputs.VERSION }}"
+          IFS='.' read -r MA MI PA <<EOF
+          ${V}
+          EOF
+          MA=${MA:-0}; MI=${MI:-0}; PA=${PA:-0}
+          CODE=$(( MA*10000 + MI*100 + PA ))
+          echo "CODE=${CODE}" >> $GITHUB_OUTPUT
+
       - name: Build release APK
         env:
           KEYSTORE_PATH: release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
-
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        run: ./gradlew assembleRelease -PversionName=${{ steps.version.outputs.VERSION }} -PversionCode=${{ steps.vcode.outputs.CODE }}
 
       - name: Rename APK
         run: |
@@ -93,6 +104,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION_CODE=${{ steps.vcode.outputs.CODE }}
           CHANGELOG=$(git log --oneline $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "HEAD~20")..HEAD --no-merges | head -20)
 
           SHIZUKU_PATH=""
@@ -103,12 +115,12 @@ jobs:
           curl -X POST \
             "${SUPABASE_URL}/rest/v1/apk_releases" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPA...EY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
             -d "{
               \"version_name\": \"${VERSION}\",
-              \"version_code\": $(echo $VERSION | tr '.' '\n' | head -1),
+              \"version_code\": ${VERSION_CODE},
               \"app_download_path\": \"UberAutoAccept-${VERSION}.apk\",
               \"shizuku_download_path\": \"${SHIZUKU_PATH}\",
               \"shizuku_version\": \"12.2.0\",
@@ -123,9 +135,13 @@ jobs:
           else
             git log --oneline -20 --no-merges > changelog.txt
           fi
+          if [ -f .github/release_notes/BEFORE_AFTER.md ]; then
+            printf "\n\n" >> changelog.txt
+            cat .github/release_notes/BEFORE_AFTER.md >> changelog.txt
+          fi
 
-      - name: Create GitHub Release (changelog only)
+      - name: Create GitHub Release (with before/after)
         uses: softprops/action-gh-release@v2
         with:
-          name: "UberAutoAccept ${{ steps.version.outputs.VERSION }}"
+          name: "UberAutoAccept v${{ steps.version.outputs.VERSION }}"
           body_path: changelog.txt
