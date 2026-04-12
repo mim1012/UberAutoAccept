@@ -150,6 +150,11 @@ class UberAccessibilityService : AccessibilityService() {
         ServiceState.init(this)
         ServiceState.setAccessibilityConnected(true)
         val wasRestored = ServiceState.restoreIfNeeded()
+        // 서비스 not active 방지: 접근성 연결 시 자동 활성화 (사용자가 STOP하면 비활성화 가능)
+        if (!ServiceState.isActive()) {
+            Log.i("UAA", "[SERVICE] auto-start on service connected")
+            ServiceState.start("onServiceConnected_auto")
+        }
 
         // 설정 로드
         config = loadConfig()
@@ -560,34 +565,11 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2단계: "콜 수락" 없을 때만 폭넓은 탐색
+        // 2단계: "콜 수락"이 없으면 주소 ViewId 쌍 동시 존재로만 판단 (느슨한 키워드 게이트 제거)
         for (root in roots) {
             if (isNonOfferRoot(root)) continue
 
-            // 2순위: 광역 행정구역 키워드 (파서와 동일한 전략)
-            val cityKeywords = listOf("특별시", "광역시", "특별자치시")
-            var cityFound = false
-            for (keyword in cityKeywords) {
-                try {
-                    val addrNodes = root.findAccessibilityNodeInfosByText(keyword)
-                        ?.filter { !it.text.isNullOrBlank() } ?: emptyList()
-                    if (addrNodes.isNotEmpty()) { cityFound = true; break }
-                } catch (_: Exception) {}
-            }
-            if (cityFound) {
-                RemoteLogger.logOfferDetection(
-                    stage = "address_gate_confirmed",
-                    source = source,
-                    success = true,
-                    details = mapOf(
-                        "match_type" to "city_keyword",
-                        "package_name" to (root.packageName?.toString() ?: "null")
-                    )
-                )
-                return root
-            }
-
-            // 3순위: ViewId 기반 감지 (health 로깅 겸용)
+            // 주소 ViewId 기반 감지 (health 로깅 겸용)
             val pickupNode = helper.findNodeByViewId(root, "uda_details_pickup_address_text_view")
             val dropoffNode = helper.findNodeByViewId(root, "uda_details_dropoff_address_text_view")
             RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
