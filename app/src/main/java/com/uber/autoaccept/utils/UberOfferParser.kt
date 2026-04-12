@@ -28,7 +28,19 @@ class UberOfferParser {
             val (pickupAddress, dropoffAddress, confidence) = findAddresses(rootNode)
                 ?: run {
                     Log.w(TAG, "출발지/도착지 추출 실패 (strict)")
-                    RemoteLogger.logParseResult(false, null, "SIMPLE_ADDR_FAIL")
+                    // Remote diagnostics: compact UI summary for on-device tracing (no ADB)
+                    try {
+                        val ids = AccessibilityHelper.collectResourceIds(rootNode).entries
+                            .sortedByDescending { it.value }.take(30)
+                            .joinToString(prefix = "[", postfix = "]") { "${'$'}{it.key}:${'$'}{it.value}" }
+                        val addrs = AccessibilityHelper.findAddressLikeNodes(rootNode, 10)
+                            .joinToString(prefix = "[", postfix = "]") { (rid, cls, s) -> "(${ '$'}rid|${ '$'}cls|${ '$'}{s.replace("|","/")})" }
+                        val btns = AccessibilityHelper.findAcceptButtonCandidates(rootNode, 5)
+                            .joinToString(prefix = "[", postfix = "]") { (rid, cls, s) -> "(${ '$'}rid|${ '$'}cls|${ '$'}{s.replace("|","/")})" }
+                        RemoteLogger.logParseResult(false, null, "SIMPLE_ADDR_FAIL UI_SUMMARY ids=${'$'}ids addrs=${'$'}addrs btns=${'$'}btns")
+                    } catch (_: Exception) {
+                        RemoteLogger.logParseResult(false, null, "SIMPLE_ADDR_FAIL")
+                    }
                     return null
                 }
 

@@ -22,6 +22,66 @@ object AccessibilityHelper {
         "drop_off_address"
     )
 
+    // ===== Remote diagnostics helpers (no ADB needed) =====
+    fun collectResourceIds(root: AccessibilityNodeInfo?): Map<String, Int> {
+        if (root == null) return emptyMap()
+        val counts = linkedMapOf<String, Int>()
+        fun walk(n: AccessibilityNodeInfo?) {
+            if (n == null) return
+            try {
+                val rid = n.viewIdResourceName ?: ""
+                if (rid.isNotBlank()) {
+                    val short = rid.substringAfter(":id/", rid)
+                    counts[short] = (counts[short] ?: 0) + 1
+                }
+                for (i in 0 until n.childCount) walk(n.getChild(i))
+            } catch (_: Exception) {}
+        }
+        walk(root)
+        return counts
+    }
+
+    fun findAddressLikeNodes(root: AccessibilityNodeInfo?, limit: Int = 20): List<Triple<String,String,String>> {
+        if (root == null) return emptyList()
+        val result = mutableListOf<Triple<String,String,String>>()
+        val addrTerms = listOf("시","구","동","로","길","역","터미널")
+        fun isAddr(s: String) = s.length > 5 && addrTerms.any { s.contains(it) }
+        fun walk(n: AccessibilityNodeInfo?) {
+            if (n == null || result.size >= limit) return
+            try {
+                val t = n.text?.toString() ?: ""
+                val d = n.contentDescription?.toString() ?: ""
+                val rid = (n.viewIdResourceName ?: "").substringAfter(":id/", "")
+                if (isAddr(t) || isAddr(d)) {
+                    result.add(Triple(rid, n.className?.toString() ?: "", (if (isAddr(t)) t else d).take(80)))
+                }
+                for (i in 0 until n.childCount) walk(n.getChild(i))
+            } catch (_: Exception) {}
+        }
+        walk(root)
+        return result
+    }
+
+    fun findAcceptButtonCandidates(root: AccessibilityNodeInfo?, limit: Int = 10): List<Triple<String,String,String>> {
+        if (root == null) return emptyList()
+        val texts = listOf("콜 수락","수락","확인","Accept","ACCEPT")
+        val out = mutableListOf<Triple<String,String,String>>()
+        fun walk(n: AccessibilityNodeInfo?) {
+            if (n == null || out.size >= limit) return
+            try {
+                val t = n.text?.toString() ?: ""
+                val d = n.contentDescription?.toString() ?: ""
+                if ((t + " " + d).let { s -> texts.any { s.contains(it) } }) {
+                    val rid = (n.viewIdResourceName ?: "").substringAfter(":id/", "")
+                    out.add(Triple(rid, n.className?.toString() ?: "", (t.ifBlank { d }).take(80)))
+                }
+                for (i in 0 until n.childCount) walk(n.getChild(i))
+            } catch (_: Exception) {}
+        }
+        walk(root)
+        return out
+    }
+
     fun findNodeByViewId(rootNode: AccessibilityNodeInfo?, viewId: String): AccessibilityNodeInfo? {
         if (rootNode == null) return null
         val fullViewId = "${UberOfferGate.UBER_DRIVER_PACKAGE}:id/$viewId"
