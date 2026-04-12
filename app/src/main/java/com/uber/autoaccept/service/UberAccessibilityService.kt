@@ -511,6 +511,7 @@ class UberAccessibilityService : AccessibilityService() {
      * - 비오퍼 화면(운행 리스트, 새로운 콜 배너 등) 제외
      * - 오퍼 화면 로딩 완료 확인 후 반환 ("대한민국" 주소 2개 이상)
      */
+    @Volatile private var lastUiSummaryAtMs: Long = 0L
     private suspend fun findOfferWindow(source: String): android.view.accessibility.AccessibilityNodeInfo? {
         val helper = com.uber.autoaccept.utils.AccessibilityHelper
         val roots = windows?.mapNotNull { it.root }?.ifEmpty { null }
@@ -594,6 +595,32 @@ class UberAccessibilityService : AccessibilityService() {
             success = false,
             details = mapOf("root_count" to roots.size)
         )
+        // Remote diagnostics (no ADB): throttle UI summary once per 20s
+        val now = System.currentTimeMillis()
+        if (now - lastUiSummaryAtMs > 20_000) {
+            lastUiSummaryAtMs = now
+            val sampleRoot = roots.firstOrNull()
+            if (sampleRoot != null) {
+                try {
+                    val ids = helper.collectResourceIds(sampleRoot).entries
+                        .sortedByDescending { it.value }.take(30)
+                        .joinToString(prefix = "[", postfix = "]") { "${'$'}{it.key}:${'$'}{it.value}" }
+                    val addrs = helper.findAddressLikeNodes(sampleRoot, 10)
+                        .joinToString(prefix = "[", postfix = "]") { (rid, cls, s) -> "(${ '$'}rid|${ '$'}cls|${ '$'}{s.replace("|","/")})" }
+                    val btns = helper.findAcceptButtonCandidates(sampleRoot, 5)
+                        .joinToString(prefix = "[", postfix = "]") { (rid, cls, s) -> "(${ '$'}rid|${ '$'}cls|${ '$'}{s.replace("|","/")})" }
+                    RemoteLogger.logOfferDetection(
+                        stage = "offer_window_ui_summary",
+                        source = source,
+                        success = false,
+                        details = mapOf(
+                            "ui_summary" to "ids=${'$'}ids addrs=${'$'}addrs btns=${'$'}btns",
+                            "package_name" to (sampleRoot.packageName?.toString() ?: "null")
+                        )
+                    )
+                } catch (_: Exception) {}
+            }
+        }
         return null
     }
 
