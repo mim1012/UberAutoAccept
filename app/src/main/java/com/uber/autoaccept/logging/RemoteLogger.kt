@@ -147,10 +147,15 @@ object RemoteLogger {
         flushNow()
     }
 
-    fun logParseResult(success: Boolean, offerData: ParsedOfferData?, error: String?) {
+    fun logParseResult(
+        success: Boolean,
+        offerData: ParsedOfferData?,
+        error: String?,
+        details: Map<String, Any?> = emptyMap()
+    ) {
         enqueue(LogEntry(
             type = LogType.PARSE,
-            data = mapOf("success" to success, "offer" to offerData, "error_message" to error)
+            data = mapOf("success" to success, "offer" to offerData, "error_message" to error) + details
         ))
     }
 

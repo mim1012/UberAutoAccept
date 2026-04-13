@@ -19,7 +19,7 @@ object ShizukuHelper {
     private val userServiceArgs = Shizuku.UserServiceArgs(
         ComponentName(BuildConfig.APPLICATION_ID, ShizukuUserService::class.java.name)
     )
-        .daemon(false)
+        .daemon(true)
         .processNameSuffix("shizuku_service")
         .debuggable(BuildConfig.DEBUG)
         .version(BuildConfig.VERSION_CODE)

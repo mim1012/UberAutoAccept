@@ -15,6 +15,24 @@ Key fields in `data`:
 - optional details:
   `class_name`, `view_id`, `strong_marker`, `match_type`, `package_name`, `root_count`, `state`
 
+Parse logs are stored separately with:
+
+- `log_type = 'parse'`
+- `data.success`
+- `data.offer.pickup`
+- `data.offer.dropoff`
+- `data.offer.parse_confidence`
+- `data.offer.parser_source`
+- `data.offer.pickup_view_id`
+- `data.offer.dropoff_view_id`
+- `data.offer.pickup_validated`
+- `data.offer.dropoff_validated`
+- `data.error_code`
+- `data.failure_stage`
+- `data.ui_summary_ids`
+- `data.ui_summary_addrs`
+- `data.ui_summary_btns`
+
 Typical happy path:
 
 1. `window_state_received`
@@ -28,6 +46,19 @@ Fallback paths:
 - `content_changed_received` -> `address_gate_confirmed` -> `trigger_parse`
 - `class_gate_match` -> `class_gate_unconfirmed`
 - `offer_window_not_found`
+
+Current parser sources:
+
+- `uda_details`
+- `card_viewid`
+- `standard_offer`
+- `leg_offer`
+- `alt_dropoff`
+
+Migration note:
+
+- `uber_logs.data` is already `jsonb`, so no table-column migration is required for the new parse metadata.
+- If query volume grows, apply [add_offer_parse_indexes.sql](/D:/Project/UberAutoAccept/supabase/add_offer_parse_indexes.sql:1) for expression indexes.
 
 Use [offer_detection_queries.sql](/D:/Project/UberAutoAccept/supabase/offer_detection_queries.sql) for ready-made queries.
 

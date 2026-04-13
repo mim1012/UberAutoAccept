@@ -142,3 +142,39 @@ left join lateral (
 ) p on true
 order by d.created_at desc
 limit 100;
+
+-- 9. Recent parse successes with structured parser metadata
+select
+  created_at,
+  device_id,
+  data->>'success' as success,
+  data->'offer'->>'pickup' as pickup,
+  data->'offer'->>'dropoff' as dropoff,
+  data->'offer'->>'parser_source' as parser_source,
+  data->'offer'->>'pickup_view_id' as pickup_view_id,
+  data->'offer'->>'dropoff_view_id' as dropoff_view_id,
+  data->'offer'->>'pickup_validated' as pickup_validated,
+  data->'offer'->>'dropoff_validated' as dropoff_validated,
+  data->'offer'->>'parse_confidence' as parse_confidence
+from uber_logs
+where log_type = 'parse'
+  and data->>'success' = 'true'
+order by created_at desc
+limit 200;
+
+-- 10. Parse failures with structured failure context
+select
+  created_at,
+  device_id,
+  data->>'error_message' as error_message,
+  data->>'error_code' as error_code,
+  data->>'failure_stage' as failure_stage,
+  data->>'retry_count' as retry_count,
+  data->>'ui_summary_ids' as ui_summary_ids,
+  data->>'ui_summary_addrs' as ui_summary_addrs,
+  data->>'ui_summary_btns' as ui_summary_btns
+from uber_logs
+where log_type = 'parse'
+  and data->>'success' = 'false'
+order by created_at desc
+limit 200;

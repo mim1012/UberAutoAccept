@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity() {
         private const val OVERLAY_PERMISSION_REQUEST = 1001
         private const val PHONE_PERMISSION_REQUEST = 1002
         private const val MAX_AUTH_RETRIES = 3
+        private const val ACTION_ENGINE_START = "com.uber.autoaccept.ACTION_ENGINE_START"
+        private const val ACTION_ENGINE_STOP = "com.uber.autoaccept.ACTION_ENGINE_STOP"
     }
 
     private lateinit var licenseText: TextView
@@ -305,14 +307,22 @@ class MainActivity : AppCompatActivity() {
             return
         }
         startForegroundService(Intent(this, FloatingWidgetService::class.java))
+        sendEngineCommand(ACTION_ENGINE_START)
         floatingServiceRunning = true
         updateStartStopButton()
     }
 
     private fun stopFloatingWidget() {
+        sendEngineCommand(ACTION_ENGINE_STOP)
         stopService(Intent(this, FloatingWidgetService::class.java))
         floatingServiceRunning = false
         updateStartStopButton()
+    }
+
+    private fun sendEngineCommand(action: String) {
+        val intent = Intent(action)
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
     }
 
     @Deprecated("Deprecated in Java")
