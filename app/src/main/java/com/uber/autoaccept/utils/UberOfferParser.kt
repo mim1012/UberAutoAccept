@@ -29,11 +29,17 @@ class UberOfferParser {
         val dropoffValidated: Boolean
     )
 
-    fun parseOfferDetails(rootNode: AccessibilityNodeInfo): UberOffer? {
-        return parseByViewId(rootNode)
+    fun parseOfferDetails(
+        rootNode: AccessibilityNodeInfo,
+        existingTraceContext: com.uber.autoaccept.model.OfferTraceContext? = null
+    ): UberOffer? {
+        return parseByViewId(rootNode, existingTraceContext)
     }
 
-    private fun parseByViewId(rootNode: AccessibilityNodeInfo): UberOffer? {
+    private fun parseByViewId(
+        rootNode: AccessibilityNodeInfo,
+        existingTraceContext: com.uber.autoaccept.model.OfferTraceContext?
+    ): UberOffer? {
         try {
             val addressMatch = findAddresses(rootNode) ?: run {
                 Log.w(TAG, "Address extraction failed")
@@ -55,6 +61,7 @@ class UberOfferParser {
                         null,
                         "ADDR_FAIL",
                         mapOf(
+                            "trace_id" to existingTraceContext?.traceId,
                             "error_code" to "ADDR_FAIL",
                             "failure_stage" to "find_addresses",
                             "ui_summary_ids" to ids,
@@ -68,6 +75,7 @@ class UberOfferParser {
                         null,
                         "ADDR_FAIL",
                         mapOf(
+                            "trace_id" to existingTraceContext?.traceId,
                             "error_code" to "ADDR_FAIL",
                             "failure_stage" to "find_addresses"
                         )
@@ -99,8 +107,15 @@ class UberOfferParser {
                 """.trimIndent()
             )
 
+            val traceContext = existingTraceContext ?: com.uber.autoaccept.model.OfferTraceContext(
+                traceId = UUID.randomUUID().toString(),
+                detectionSource = "parser",
+                detectionStage = "parse"
+            )
+
             return UberOffer(
-                offerUuid = UUID.randomUUID().toString(),
+                offerUuid = traceContext.traceId,
+                traceContext = traceContext,
                 pickupLocation = addressMatch.pickup,
                 dropoffLocation = addressMatch.dropoff,
                 customerDistance = customerDistance,
@@ -123,6 +138,7 @@ class UberOfferParser {
                 null,
                 "ViewId parse error: ${e.message}",
                 mapOf(
+                    "trace_id" to existingTraceContext?.traceId,
                     "error_code" to "PARSE_EXCEPTION",
                     "failure_stage" to "parse_by_view_id"
                 )

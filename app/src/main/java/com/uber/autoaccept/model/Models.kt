@@ -28,8 +28,16 @@ data class FilterSettings(
     val enabledConditions: Set<Int> = setOf(4)
 )
 
+data class OfferTraceContext(
+    val traceId: String,
+    val detectedAtMs: Long = System.currentTimeMillis(),
+    val detectionSource: String? = null,
+    val detectionStage: String? = null
+)
+
 data class UberOffer(
     val offerUuid: String,
+    val traceContext: OfferTraceContext? = null,
     val pickupLocation: String,
     val dropoffLocation: String,
     val customerDistance: Double,
@@ -54,8 +62,28 @@ enum class ParseConfidence {
 }
 
 sealed class FilterResult {
-    data class Accepted(val reasons: List<String>) : FilterResult()
-    data class Rejected(val reasons: List<String>) : FilterResult()
+    abstract val reasons: List<String>
+    abstract val matchedConditions: List<Int>
+    abstract val enabledConditions: Set<Int>
+    abstract val keywordHits: Map<String, List<String>>
+    abstract val summary: String
+
+    data class Accepted(
+        override val reasons: List<String>,
+        override val matchedConditions: List<Int>,
+        override val enabledConditions: Set<Int>,
+        override val keywordHits: Map<String, List<String>> = emptyMap(),
+        override val summary: String
+    ) : FilterResult()
+
+    data class Rejected(
+        override val reasons: List<String>,
+        override val matchedConditions: List<Int>,
+        override val enabledConditions: Set<Int>,
+        override val keywordHits: Map<String, List<String>> = emptyMap(),
+        override val summary: String,
+        val rejectCode: String
+    ) : FilterResult()
 }
 
 data class AppConfig(

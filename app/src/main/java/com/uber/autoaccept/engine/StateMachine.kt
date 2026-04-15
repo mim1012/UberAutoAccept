@@ -1,7 +1,6 @@
 package com.uber.autoaccept.engine
 
 import android.util.Log
-import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.AppState
 import com.uber.autoaccept.model.StateEvent
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,7 +71,8 @@ class StateMachine {
                 when (event) {
                     is StateEvent.NewOfferAppeared -> AppState.OfferDetected(
                         com.uber.autoaccept.model.UberOffer(
-                            offerUuid = "",
+                            offerUuid = event.traceContext.traceId,
+                            traceContext = event.traceContext,
                             pickupLocation = "",
                             dropoffLocation = "",
                             customerDistance = 0.0,
@@ -146,7 +146,8 @@ class StateMachine {
                     is StateEvent.Reset -> AppState.Online
                     is StateEvent.NewOfferAppeared -> AppState.OfferDetected(
                         com.uber.autoaccept.model.UberOffer(
-                            offerUuid = "",
+                            offerUuid = event.traceContext.traceId,
+                            traceContext = event.traceContext,
                             pickupLocation = "",
                             dropoffLocation = "",
                             customerDistance = 0.0,
@@ -191,18 +192,12 @@ class StateMachine {
         when (state) {
             is AppState.Accepted -> {
                 Log.i(TAG, "✅ 콜 수락 성공 [${state.strategy}]: ${state.offer.pickupLocation} -> ${state.offer.dropoffLocation}")
-                RemoteLogger.logActionResult(
-                    "accept", true,
-                    "strategy=${state.strategy}, ${state.offer.pickupLocation} -> ${state.offer.dropoffLocation}"
-                )
             }
             is AppState.Rejected -> {
                 Log.w(TAG, "❌ 콜 거부: ${state.reason}")
-                RemoteLogger.logActionResult("reject", true, state.reason)
             }
             is AppState.Error -> {
                 Log.e(TAG, "⚠️ 오류 발생: ${state.message}", state.exception)
-                RemoteLogger.logActionResult("error", false, state.message)
             }
             else -> {}
         }

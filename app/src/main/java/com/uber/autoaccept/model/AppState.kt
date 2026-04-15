@@ -59,7 +59,10 @@ sealed class StateEvent {
     object UberAppClosed : StateEvent()
     object DriverWentOnline : StateEvent()
     object DriverWentOffline : StateEvent()
-    data class NewOfferAppeared(val rawNode: android.view.accessibility.AccessibilityNodeInfo) : StateEvent()
+    data class NewOfferAppeared(
+        val rawNode: android.view.accessibility.AccessibilityNodeInfo,
+        val traceContext: OfferTraceContext
+    ) : StateEvent()
     data class OfferParsed(val offer: UberOffer) : StateEvent()
     data class OfferFiltered(val accepted: Boolean, val reason: String) : StateEvent()
     object AcceptButtonClicked : StateEvent()

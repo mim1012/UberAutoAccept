@@ -20,6 +20,7 @@ data class LogEntry(
 
 data class ParsedOfferData(
     @SerializedName("offer_uuid") val offerUuid: String,
+    @SerializedName("trace_id") val traceId: String? = null,
     val pickup: String,
     val dropoff: String,
     @SerializedName("customer_distance") val customerDistance: Double,
