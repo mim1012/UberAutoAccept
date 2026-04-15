@@ -105,6 +105,7 @@
   </div>
 
   <div class="notice" id="statusBox">불러오는 중...</div>
+  <div class="notice" id="sourceBox">데이터 소스 확인 중...</div>
 
   <div class="grid">
     <div class="card kpi"><div class="label">총 로그 수</div><div class="value" id="kpiTotal">-</div><div class="hint">선택한 기간/디바이스 기준</div></div>
@@ -391,7 +392,9 @@ async function refresh() {
   const days = Number(document.getElementById('rangeSelect').value);
   const device = document.getElementById('deviceSelect').value;
   const statusBox = document.getElementById('statusBox');
+  const sourceBox = document.getElementById('sourceBox');
   statusBox.textContent = 'Supabase에서 로그를 불러오는 중...';
+  sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch: 진행 중`;
   try {
     const rows = await fetchRows(days);
     const allDevices = [...new Set(rows.map(r => r.device_id).filter(Boolean))];
@@ -401,9 +404,12 @@ async function refresh() {
     if (allDevices.includes(current)) select.value = current;
     const agg = aggregate(rows, device);
     render(agg, days);
-    statusBox.textContent = `최근 ${days}일 로그 ${rows.length.toLocaleString()}건 로드 완료 · 마지막 새로고침 ${new Date().toLocaleString('ko-KR')}`;
+    const fetchedAt = new Date().toLocaleString('ko-KR');
+    statusBox.textContent = `최근 ${days}일 로그 ${rows.length.toLocaleString()}건 로드 완료 · 마지막 새로고침 ${fetchedAt}`;
+    sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch: ${fetchedAt} · 불러온 row 수: ${rows.length.toLocaleString()}건`;
   } catch (e) {
     statusBox.textContent = `불러오기 실패: ${e.message}`;
+    sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch 결과: 실패 (${e.message})`;
   }
 }
 
