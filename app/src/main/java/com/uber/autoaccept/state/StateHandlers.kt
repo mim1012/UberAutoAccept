@@ -20,7 +20,8 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
 
         Log.d(TAG, "Offer parse started")
 
-        var offer = parser.parseOfferDetails(rootNode)
+        val traceContext = state.offer.traceContext
+        var offer = parser.parseOfferDetails(rootNode, traceContext)
         var attempt = 0
         while (offer == null && attempt < 3) {
             attempt++
@@ -28,7 +29,7 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
             delay(150L)
             if (!rootNode.isValid()) break
             rootNode.refresh()
-            offer = parser.parseOfferDetails(rootNode)
+            offer = parser.parseOfferDetails(rootNode, traceContext)
         }
 
         return if (offer != null) {
@@ -40,6 +41,7 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
                 success = true,
                 offerData = ParsedOfferData(
                     offerUuid = offer.offerUuid,
+                    traceId = offer.traceContext?.traceId,
                     pickup = offer.pickupLocation,
                     dropoff = offer.dropoffLocation,
                     customerDistance = offer.customerDistance,
@@ -54,9 +56,11 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
                 ),
                 error = null,
                 details = mapOf(
+                    "trace_id" to offer.traceContext?.traceId,
                     "parser_source" to offer.parserSource,
                     "pickup_view_id" to offer.pickupViewId,
-                    "dropoff_view_id" to offer.dropoffViewId
+                    "dropoff_view_id" to offer.dropoffViewId,
+                    "parse_attempt" to (attempt + 1)
                 )
             )
             StateEvent.OfferParsed(offer)
@@ -67,6 +71,7 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
                 offerData = null,
                 error = "ViewId/텍스트 파싱 실패 (retry=3)",
                 details = mapOf(
+                    "trace_id" to traceContext?.traceId,
                     "error_code" to "PARSE_FAILED_AFTER_RETRY",
                     "failure_stage" to "offer_detected_handler",
                     "retry_count" to attempt
@@ -87,14 +92,21 @@ class OfferAnalyzingHandler(private val filterEngine: FilterEngine) : BaseStateH
 
         Log.d(TAG, "Filtering offer")
         val result = filterEngine.isEligible(state.offer)
+        RemoteLogger.logFilterResult(state.offer, result)
 
         return when (result) {
             is FilterResult.Accepted -> {
-                Log.i("UAA", "[FILTER] accepted ${result.reasons.joinToString()}")
+                Log.i(
+                    "UAA",
+                    "[FILTER][${state.offer.traceContext?.traceId}] accepted matched=${result.matchedConditions} enabled=${result.enabledConditions} hits=${result.keywordHits}"
+                )
                 StateEvent.OfferFiltered(accepted = true, reason = result.reasons.joinToString())
             }
             is FilterResult.Rejected -> {
-                Log.w("UAA", "[FILTER] rejected ${result.reasons.joinToString()}")
+                Log.w(
+                    "UAA",
+                    "[FILTER][${state.offer.traceContext?.traceId}] rejected code=${result.rejectCode} matched=${result.matchedConditions} enabled=${result.enabledConditions} hits=${result.keywordHits} reason=${result.reasons.joinToString()}"
+                )
                 StateEvent.OfferFiltered(accepted = false, reason = result.reasons.joinToString())
             }
         }
@@ -163,14 +175,23 @@ class AcceptingHandler : BaseStateHandler() {
                 var method = "unknown"
 
                 if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
-                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
+                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(
+                        target.x,
+                        target.y,
+                        traceId = state.offer.traceContext?.traceId
+                    )
                     if (ok) {
-                        Log.i("UAA", "[ACCEPT] Shizuku tap (${target.x},${target.y})")
-                        RemoteLogger.logActionResult("accept", true, "shizuku_tap(${target.x},${target.y})")
+                        Log.i("UAA", "[ACCEPT][${state.offer.traceContext?.traceId}] Shizuku tap (${target.x},${target.y})")
+                        RemoteLogger.logActionResult(
+                            "accept",
+                            true,
+                            "shizuku_tap(${target.x},${target.y})",
+                            state.offer,
+                            mapOf("strategy" to "shizuku_tap")
+                        )
                         return StateEvent.AcceptSuccess("shizuku_tap")
                     }
-                    Log.w("UAA", "[ACCEPT] Shizuku failed, fallback continues")
-                    RemoteLogger.logActionResult("accept", false, "shizuku_tap_failed_fallback")
+                    Log.w("UAA", "[ACCEPT][${state.offer.traceContext?.traceId}] Shizuku failed, fallback continues")
                     method = "shizuku_fail_dispatch"
                 } else {
                     Log.w("UAA", "[ACCEPT] No Shizuku, fallback continues")
@@ -178,13 +199,18 @@ class AcceptingHandler : BaseStateHandler() {
                 }
 
                 if (GestureClicker.click(svc, target.x, target.y, humanize = false)) {
-                    Log.i("UAA", "[ACCEPT] dispatchGesture (${target.x},${target.y})")
-                    RemoteLogger.logActionResult("accept", true, "dispatch_completed(${target.x},${target.y})[$method]")
+                    Log.i("UAA", "[ACCEPT][${state.offer.traceContext?.traceId}] dispatchGesture (${target.x},${target.y})")
+                    RemoteLogger.logActionResult(
+                        "accept",
+                        true,
+                        "dispatch_completed(${target.x},${target.y})[$method]",
+                        state.offer,
+                        mapOf("strategy" to method)
+                    )
                     return StateEvent.AcceptSuccess(method)
                 }
 
-                Log.w("UAA", "[ACCEPT] target dispatch failed, node fallback continues")
-                RemoteLogger.logActionResult("accept", false, "dispatch_failed(${target.x},${target.y})[$method]")
+                Log.w("UAA", "[ACCEPT][${state.offer.traceContext?.traceId}] target dispatch failed, node fallback continues")
                 RemoteLogger.logDiagnostic(
                     "accept_target_dispatch_failed",
                     mapOf("method" to method, "target_x" to target.x, "target_y" to target.y)
@@ -200,7 +226,7 @@ class AcceptingHandler : BaseStateHandler() {
             ) {
                 if (storedButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     Log.i(TAG, "Accept button clicked with stored node")
-                    RemoteLogger.logActionResult("accept", true, "stored_node")
+                    RemoteLogger.logActionResult("accept", true, "stored_node", state.offer, mapOf("strategy" to "stored_node"))
                     return StateEvent.AcceptSuccess("stored_node")
                 }
                 Log.w(TAG, "Stored node click failed, trying fallbacks")
@@ -216,7 +242,7 @@ class AcceptingHandler : BaseStateHandler() {
                     val btn = com.uber.autoaccept.utils.AccessibilityHelper.findNodeByViewId(root, viewId)
                     if (btn != null && btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         Log.i(TAG, "Accept button clicked (ViewId: $viewId)")
-                        RemoteLogger.logActionResult("accept", true, "view_id($viewId)")
+                        RemoteLogger.logActionResult("accept", true, "view_id($viewId)", state.offer, mapOf("strategy" to "view_id($viewId)"))
                         return StateEvent.AcceptSuccess("view_id($viewId)")
                     }
                 }
@@ -228,7 +254,7 @@ class AcceptingHandler : BaseStateHandler() {
                     val btn = com.uber.autoaccept.utils.AccessibilityHelper.findClickableNode(node) ?: node
                     if (btn != null && btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         Log.i(TAG, "Accept button clicked (text: $text)")
-                        RemoteLogger.logActionResult("accept", true, "text($text)")
+                        RemoteLogger.logActionResult("accept", true, "text($text)", state.offer, mapOf("strategy" to "text($text)"))
                         return StateEvent.AcceptSuccess("text($text)")
                     }
                 }
@@ -243,7 +269,7 @@ class AcceptingHandler : BaseStateHandler() {
                         if (btn != null && GestureClicker.clickNode(svc, btn)) {
                             delay(300)
                             Log.i(TAG, "Accept succeeded (gesture view id: $viewId)")
-                            RemoteLogger.logActionResult("accept", true, "gesture_view_id($viewId)")
+                            RemoteLogger.logActionResult("accept", true, "gesture_view_id($viewId)", state.offer, mapOf("strategy" to "gesture_view_id($viewId)"))
                             return StateEvent.AcceptSuccess("gesture_view_id($viewId)")
                         }
                     }
@@ -255,7 +281,7 @@ class AcceptingHandler : BaseStateHandler() {
                         if (node != null && GestureClicker.clickNode(svc, node)) {
                             delay(300)
                             Log.i(TAG, "Accept succeeded (gesture text: $text)")
-                            RemoteLogger.logActionResult("accept", true, "gesture_text($text)")
+                            RemoteLogger.logActionResult("accept", true, "gesture_text($text)", state.offer, mapOf("strategy" to "gesture_text($text)"))
                             return StateEvent.AcceptSuccess("gesture_text($text)")
                         }
                     }
@@ -265,7 +291,13 @@ class AcceptingHandler : BaseStateHandler() {
             }
 
             Log.e(TAG, "All accept fallbacks failed (roots=${searchRoots.size})")
-            RemoteLogger.logActionResult("accept", false, "all_fallbacks_failed(window:${searchRoots.size})")
+            RemoteLogger.logActionResult(
+                "accept",
+                false,
+                "all_fallbacks_failed(window:${searchRoots.size})",
+                state.offer,
+                mapOf("strategy" to "all_fallbacks_failed")
+            )
             return StateEvent.ErrorOccurred("수락 버튼 클릭 불가")
         } finally {
             com.uber.autoaccept.service.FloatingWidgetService.enableTargetTouch()
@@ -296,7 +328,6 @@ class RejectedHandler : BaseStateHandler() {
         }
 
         Log.w(TAG, "Offer rejected: ${state.reason}")
-        Log.w("UAA", "[FILTER] rejected: ${state.reason}")
         delay(1000)
         return StateEvent.Reset
     }
@@ -311,7 +342,6 @@ class ErrorHandler : BaseStateHandler() {
         }
 
         Log.e(TAG, "State error: ${state.message}", state.exception)
-        Log.e("UAA", "[ERROR] ${state.message}")
         delay(2000)
         return StateEvent.Reset
     }

@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.uber.autoaccept.auth.AuthManager
+import com.uber.autoaccept.model.FilterResult
+import com.uber.autoaccept.model.OfferTraceContext
+import com.uber.autoaccept.model.UberOffer
 import com.uber.autoaccept.supabase.SupabaseClient
 import com.uber.autoaccept.supabase.SupabaseConfig
 import kotlinx.coroutines.*
@@ -24,6 +27,7 @@ object RemoteLogger {
 
     private val queue = ConcurrentLinkedQueue<LogEntry>()
     private val viewIdLastState = ConcurrentHashMap<String, Boolean>()
+    private val throttleState = ConcurrentHashMap<String, Long>()
 
     private var scope: CoroutineScope? = null
     private var flushJob: Job? = null
@@ -43,6 +47,40 @@ object RemoteLogger {
         val log_type: String,
         val data: Map<String, Any?>
     )
+
+    private fun shouldLog(throttleKey: String?, throttleMs: Long): Boolean {
+        if (throttleKey.isNullOrBlank() || throttleMs <= 0L) return true
+        val now = System.currentTimeMillis()
+        val last = throttleState[throttleKey]
+        if (last != null && now - last < throttleMs) return false
+        throttleState[throttleKey] = now
+        return true
+    }
+
+    private fun withTrace(details: Map<String, Any?>, traceContext: OfferTraceContext?): Map<String, Any?> {
+        if (traceContext == null) return details
+        return mapOf(
+            "trace_id" to traceContext.traceId,
+            "detected_at_ms" to traceContext.detectedAtMs,
+            "detection_source" to traceContext.detectionSource,
+            "detection_stage" to traceContext.detectionStage
+        ) + details
+    }
+
+    private fun withOffer(details: Map<String, Any?>, offer: UberOffer?): Map<String, Any?> {
+        if (offer == null) return details
+        return withTrace(
+            mapOf(
+                "offer_uuid" to offer.offerUuid,
+                "pickup" to offer.pickupLocation,
+                "dropoff" to offer.dropoffLocation,
+                "customer_distance" to offer.customerDistance,
+                "trip_distance" to offer.tripDistance,
+                "parser_source" to offer.parserSource
+            ) + details,
+            offer.traceContext
+        )
+    }
 
     fun initialize(context: Context, deviceId: String, enabled: Boolean) {
         this.appContext = context.applicationContext
@@ -94,6 +132,7 @@ object RemoteLogger {
             currentScope.cancel()
         }
         viewIdLastState.clear()
+        throttleState.clear()
         Log.i(TAG, "Shutdown")
     }
 
@@ -153,16 +192,61 @@ object RemoteLogger {
         error: String?,
         details: Map<String, Any?> = emptyMap()
     ) {
+        val traceId = offerData?.traceId ?: details["trace_id"] as? String
         enqueue(LogEntry(
             type = LogType.PARSE,
-            data = mapOf("success" to success, "offer" to offerData, "error_message" to error) + details
+            data = mapOf(
+                "success" to success,
+                "offer" to offerData,
+                "error_message" to error,
+                "trace_id" to traceId
+            ) + details
         ))
     }
 
-    fun logActionResult(action: String, success: Boolean, details: String?) {
+    fun logActionResult(
+        action: String,
+        success: Boolean,
+        details: String?,
+        offer: UberOffer? = null,
+        extra: Map<String, Any?> = emptyMap()
+    ) {
         enqueue(LogEntry(
             type = LogType.ACTION,
-            data = mapOf("action" to action, "success" to success, "details" to details)
+            data = withOffer(
+                mapOf(
+                    "action" to action,
+                    "success" to success,
+                    "details" to details,
+                    "state" to (currentStateSupplier?.invoke() ?: "unknown")
+                ) + extra,
+                offer
+            )
+        ))
+    }
+
+    fun logFilterResult(offer: UberOffer, result: FilterResult) {
+        val decision = when (result) {
+            is FilterResult.Accepted -> "accepted"
+            is FilterResult.Rejected -> "rejected"
+        }
+        val rejectCode = (result as? FilterResult.Rejected)?.rejectCode
+        enqueue(LogEntry(
+            type = LogType.DEBUG,
+            data = withOffer(
+                mapOf(
+                    "event_type" to "filter_result",
+                    "decision" to decision,
+                    "reasons" to result.reasons,
+                    "summary" to result.summary,
+                    "matched_conditions" to result.matchedConditions,
+                    "enabled_conditions" to result.enabledConditions.toList().sorted(),
+                    "keyword_hits" to result.keywordHits,
+                    "reject_code" to rejectCode,
+                    "timestamp" to System.currentTimeMillis()
+                ),
+                offer
+            )
         ))
     }
 
@@ -244,18 +328,25 @@ object RemoteLogger {
         stage: String,
         source: String,
         success: Boolean,
-        details: Map<String, Any?> = emptyMap()
+        details: Map<String, Any?> = emptyMap(),
+        traceContext: OfferTraceContext? = null,
+        throttleKey: String? = null,
+        throttleMs: Long = 0L
     ) {
+        if (!shouldLog(throttleKey, throttleMs)) return
         enqueue(LogEntry(
             type = LogType.DEBUG,
-            data = mapOf(
-                "event_type" to "offer_detection",
-                "stage" to stage,
-                "source" to source,
-                "success" to success,
-                "state" to (currentStateSupplier?.invoke() ?: "unknown"),
-                "timestamp" to System.currentTimeMillis()
-            ) + details
+            data = withTrace(
+                mapOf(
+                    "event_type" to "offer_detection",
+                    "stage" to stage,
+                    "source" to source,
+                    "success" to success,
+                    "state" to (currentStateSupplier?.invoke() ?: "unknown"),
+                    "timestamp" to System.currentTimeMillis()
+                ) + details,
+                traceContext
+            )
         ))
     }
 
@@ -272,7 +363,14 @@ object RemoteLogger {
         ))
     }
 
-    fun logShizukuTap(success: Boolean, latencyMs: Long, x: Int, y: Int, times: Int) {
+    fun logShizukuTap(
+        success: Boolean,
+        latencyMs: Long,
+        x: Int,
+        y: Int,
+        times: Int,
+        traceId: String? = null
+    ) {
         enqueue(LogEntry(
             type = LogType.SHIZUKU,
             data = mapOf(
@@ -282,6 +380,7 @@ object RemoteLogger {
                 "x" to x,
                 "y" to y,
                 "times" to times,
+                "trace_id" to traceId,
                 "timestamp" to System.currentTimeMillis()
             )
         ))
