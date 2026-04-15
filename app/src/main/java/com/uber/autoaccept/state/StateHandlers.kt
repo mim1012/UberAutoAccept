@@ -175,7 +175,11 @@ class AcceptingHandler : BaseStateHandler() {
                 var method = "unknown"
 
                 if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
-                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(target.x, target.y)
+                    val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(
+                        target.x,
+                        target.y,
+                        traceId = state.offer.traceContext?.traceId
+                    )
                     if (ok) {
                         Log.i("UAA", "[ACCEPT][${state.offer.traceContext?.traceId}] Shizuku tap (${target.x},${target.y})")
                         RemoteLogger.logActionResult(

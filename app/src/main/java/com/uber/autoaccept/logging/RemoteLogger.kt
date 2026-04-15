@@ -363,7 +363,14 @@ object RemoteLogger {
         ))
     }
 
-    fun logShizukuTap(success: Boolean, latencyMs: Long, x: Int, y: Int, times: Int) {
+    fun logShizukuTap(
+        success: Boolean,
+        latencyMs: Long,
+        x: Int,
+        y: Int,
+        times: Int,
+        traceId: String? = null
+    ) {
         enqueue(LogEntry(
             type = LogType.SHIZUKU,
             data = mapOf(
@@ -373,6 +380,7 @@ object RemoteLogger {
                 "x" to x,
                 "y" to y,
                 "times" to times,
+                "trace_id" to traceId,
                 "timestamp" to System.currentTimeMillis()
             )
         ))

@@ -239,11 +239,16 @@ object ShizukuHelper {
         }
     }
 
-    suspend fun tap(x: Float, y: Float, times: Int = 5): Boolean = withContext(Dispatchers.IO) {
+    suspend fun tap(
+        x: Float,
+        y: Float,
+        times: Int = 5,
+        traceId: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         val svc = userService
         if (svc == null) {
             Log.e(TAG, "UserService 미연결 — 즉시 재바인딩 시도")
-            RemoteLogger.logShizukuTap(false, 0, x.toInt(), y.toInt(), times)
+            RemoteLogger.logShizukuTap(false, 0, x.toInt(), y.toInt(), times, traceId)
             RemoteLogger.logRecovery("shizuku", "tap_null_service", false,
                 mapOf("x" to x.toInt(), "y" to y.toInt()))
             scheduleRebind(0, "tap_null_service")
@@ -255,12 +260,12 @@ object ShizukuHelper {
             val ok = svc.tapRepeat(x.toInt(), y.toInt(), times, 30)
             val latency = System.currentTimeMillis() - startTime
             Log.i(TAG, "tap(${x.toInt()},${y.toInt()}) x$times ${if (ok) "✅" else "❌"} (${latency}ms)")
-            RemoteLogger.logShizukuTap(ok, latency, x.toInt(), y.toInt(), times)
+            RemoteLogger.logShizukuTap(ok, latency, x.toInt(), y.toInt(), times, traceId)
             ok
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - startTime
             Log.e(TAG, "tap IPC 실패: ${e.message} — 즉시 재바인딩 시도")
-            RemoteLogger.logShizukuTap(false, latency, x.toInt(), y.toInt(), times)
+            RemoteLogger.logShizukuTap(false, latency, x.toInt(), y.toInt(), times, traceId)
             RemoteLogger.logRecovery("shizuku", "tap_ipc_failure", false,
                 mapOf("error" to (e.message ?: "unknown"), "latency_ms" to latency))
             userService = null
