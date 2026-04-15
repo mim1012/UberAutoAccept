@@ -173,6 +173,11 @@ const charts = {};
 
 const fmtPct = (n, d) => d ? `${((n / d) * 100).toFixed(1)}%` : '-';
 const short = (s, n = 72) => !s ? '-' : (s.length > n ? `${s.slice(0, n)}…` : s);
+const formatRange = (days) => {
+  const to = new Date();
+  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return `${from.toLocaleString('ko-KR')} ~ ${to.toLocaleString('ko-KR')}`;
+};
 const hourKey = iso => {
   const d = new Date(iso);
   d.setMinutes(0, 0, 0);
@@ -234,6 +239,8 @@ function aggregate(rows, selectedDevice) {
   const byDevice = {};
   const failures = [];
   const devices = [...new Set(rows.map(r => r.device_id).filter(Boolean))];
+  const selectedDevices = [...new Set(filtered.map(r => r.device_id).filter(Boolean))];
+  const versionCandidates = [];
 
   let parseTotal = 0, parseSuccess = 0, parseButtonFail = 0;
   let actionAcceptTotal = 0, actionAcceptSuccess = 0;
@@ -247,6 +254,8 @@ function aggregate(rows, selectedDevice) {
     const rk = reasonFor(row);
     const hk = hourKey(row.created_at);
     const did = row.device_id || 'unknown';
+    const version = d.app_version || d.git_tag || d.version || (offer && (offer.app_version || offer.git_tag || offer.version));
+    if (version) versionCandidates.push(String(version));
 
     byType[type] = (byType[type] || 0) + 1;
     byHour[hk] ||= { parse: 0, action: 0, shizuku: 0, debug: 0, viewid_health: 0, lifecycle: 0, other: 0 };
@@ -293,12 +302,17 @@ function aggregate(rows, selectedDevice) {
 
   failures.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  const versionSummary = versionCandidates.length
+    ? [...new Set(versionCandidates)].slice(0, 5).join(', ')
+    : '로그에 app_version/git_tag 필드 없음';
+
   return {
-    filtered, devices, byType, byFailure, byHour, byDevice, failures,
+    filtered, devices, selectedDevices, byType, byFailure, byHour, byDevice, failures,
     parseTotal, parseSuccess, parseButtonFail,
     actionAcceptTotal, actionAcceptSuccess,
     viewTotal, viewFail,
-    shizukuTotal, shizukuUnavailable
+    shizukuTotal, shizukuUnavailable,
+    versionSummary
   };
 }
 
@@ -406,7 +420,7 @@ async function refresh() {
     render(agg, days);
     const fetchedAt = new Date().toLocaleString('ko-KR');
     statusBox.textContent = `최근 ${days}일 로그 ${rows.length.toLocaleString()}건 로드 완료 · 마지막 새로고침 ${fetchedAt}`;
-    sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch: ${fetchedAt} · 불러온 row 수: ${rows.length.toLocaleString()}건`;
+    sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch: ${fetchedAt} · 불러온 row 수: ${rows.length.toLocaleString()}건 · 선택 디바이스 수: ${agg.selectedDevices.length} · 조회 기간: ${formatRange(days)} · app_version/git_tag: ${agg.versionSummary}`;
   } catch (e) {
     statusBox.textContent = `불러오기 실패: ${e.message}`;
     sourceBox.textContent = `데이터 소스: ${TABLE} 테이블 · 엔드포인트: ${SUPABASE_URL}/rest/v1/${TABLE} · 마지막 fetch 결과: 실패 (${e.message})`;
