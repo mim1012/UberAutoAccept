@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UberAutoAccept 로그 대시보드</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #121a2b;
+    --panel-2: #19243b;
+    --text: #eef2ff;
+    --muted: #98a2b3;
+    --line: #263247;
+    --good: #22c55e;
+    --warn: #f59e0b;
+    --bad: #ef4444;
+    --accent: #60a5fa;
+    --accent-2: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: linear-gradient(180deg, #0b1020, #09111b);
+    color: var(--text);
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .topbar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0; font-size: 28px; }
+  .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: rgba(18,26,43,.85); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  }
+  select, button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .card {
+    background: rgba(18,26,43,.92); border: 1px solid var(--line); border-radius: 18px; padding: 18px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  }
+  .kpi { grid-column: span 2; min-height: 120px; }
+  .kpi .label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .kpi .value { font-size: 30px; font-weight: 700; }
+  .kpi .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .span-6 { grid-column: span 6; }
+  .span-4 { grid-column: span 4; }
+  .span-8 { grid-column: span 8; }
+  .span-12 { grid-column: span 12; }
+  .title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+  .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .chart-box { position: relative; min-height: 280px; }
+  .chart-box.tall { min-height: 340px; }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .pill {
+    background: #0d1525; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; font-size: 12px; color: var(--muted);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .ok { color: var(--good); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  .small { font-size: 12px; color: var(--muted); }
+  .notice {
+    padding: 12px 14px; border-radius: 12px; background: rgba(96,165,250,.08); color: #dbeafe; border: 1px solid rgba(96,165,250,.2);
+    margin-bottom: 16px; line-height: 1.5;
+  }
+  @media (max-width: 1100px) {
+    .kpi, .span-4, .span-6, .span-8 { grid-column: span 12; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>UberAutoAccept 로그 대시보드</h1>
+      <div class="sub">GitHub Pages로 보는 운영판. 최근 로그를 Supabase에서 직접 불러와서 시각화한다.</div>
+    </div>
+    <div class="controls">
+      <select id="rangeSelect">
+        <option value="1">최근 24시간</option>
+        <option value="3">최근 3일</option>
+        <option value="7" selected>최근 7일</option>
+      </select>
+      <select id="deviceSelect">
+        <option value="all">전체 디바이스</option>
+      </select>
+      <button id="refreshBtn">새로고침</button>
+    </div>
+  </div>
+
+  <div class="notice" id="statusBox">불러오는 중...</div>
+
+  <div class="grid">
+    <div class="card kpi"><div class="label">총 로그 수</div><div class="value" id="kpiTotal">-</div><div class="hint">선택한 기간/디바이스 기준</div></div>
+    <div class="card kpi"><div class="label">파싱 성공률</div><div class="value" id="kpiParse">-</div><div class="hint" id="kpiParseHint">-</div></div>
+    <div class="card kpi"><div class="label">수락 성공률</div><div class="value" id="kpiAccept">-</div><div class="hint" id="kpiAcceptHint">-</div></div>
+    <div class="card kpi"><div class="label">버튼 탐지 실패율</div><div class="value" id="kpiButton">-</div><div class="hint" id="kpiButtonHint">-</div></div>
+    <div class="card kpi"><div class="label">ViewID 실패율</div><div class="value" id="kpiViewId">-</div><div class="hint" id="kpiViewIdHint">-</div></div>
+    <div class="card kpi"><div class="label">Shizuku 비가용률</div><div class="value" id="kpiShizuku">-</div><div class="hint" id="kpiShizukuHint">-</div></div>
+
+    <div class="card span-8">
+      <div class="title">로그 타입 분포</div>
+      <div class="meta">지금 시스템이 주로 어디서 시간을 쓰는지 바로 보는 카드</div>
+      <div class="chart-box"><canvas id="typeChart"></canvas></div>
+    </div>
+
+    <div class="card span-4">
+      <div class="title">핵심 경고</div>
+      <div class="meta">자동으로 뽑은 운영 포인트</div>
+      <div class="pill-row" id="warningPills"></div>
+    </div>
+
+    <div class="card span-6">
+      <div class="title">실패 사유 Top</div>
+      <div class="meta">error_code / failure_stage / view_id / trigger 중심 집계</div>
+      <div class="chart-box tall"><canvas id="failureChart"></canvas></div>
+    </div>
+
+    <div class="card span-6">
+      <div class="title">시간대별 로그 흐름</div>
+      <div class="meta">한 시간 단위로 끊어서 급증 구간을 찾는다</div>
+      <div class="chart-box tall"><canvas id="timeChart"></canvas></div>
+    </div>
+
+    <div class="card span-6">
+      <div class="title">디바이스별 상태</div>
+      <div class="meta">어느 기기가 실패를 몰고 오는지 확인</div>
+      <div class="chart-box tall"><canvas id="deviceChart"></canvas></div>
+    </div>
+
+    <div class="card span-6">
+      <div class="title">최근 실패 샘플</div>
+      <div class="meta">원인 파악용 raw 샘플</div>
+      <table>
+        <thead><tr><th>시간</th><th>타입</th><th>사유</th><th>디바이스</th></tr></thead>
+        <tbody id="failureTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card span-12">
+      <div class="title">이번 주 개선 포인트</div>
+      <div class="meta">데이터를 보고 바로 할 일로 번역</div>
+      <table>
+        <thead><tr><th>영역</th><th>관찰</th><th>추천 액션</th></tr></thead>
+        <tbody id="actionsTable"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://czqnybgoaeihwvgdtvgn.supabase.co';
+const SUPABASE_ANON_KEY = atob('ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnBjM01pT2lKemRYQmhZbUZ6WlNJc0luSmxaaUk2SW1ONmNXNTVZbWR2WVdWcGFIZDJaMlIwZG1kdUlpd2ljbTlzWlNJNkltRnViMjRpTENKcFlYUWlPakUzTlRZeE16TXdNVFFzSW1WNGNDSTZNakEzTVRjd09UQXhOSDAud1JzcWtPZmc0VzRKb3lRWldEZnpQcFdUV0dhLXNDMHlySmdCT1R4Tklobw==');
+const TABLE = 'uber_logs';
+const charts = {};
+
+const fmtPct = (n, d) => d ? `${((n / d) * 100).toFixed(1)}%` : '-';
+const short = (s, n = 72) => !s ? '-' : (s.length > n ? `${s.slice(0, n)}…` : s);
+const hourKey = iso => {
+  const d = new Date(iso);
+  d.setMinutes(0, 0, 0);
+  return d.toISOString().slice(5, 16).replace('T', ' ');
+};
+
+function reasonFor(row) {
+  const d = row.data || {};
+  const offer = d.offer || {};
+  return d.error_code || d.failure_stage || d.trigger || d.view_id || d.event_type || offer.parse_confidence || d.action || 'unknown';
+}
+
+function isFailure(row) {
+  const d = row.data || {};
+  const offer = d.offer || {};
+  if (d.success === false) return true;
+  if (row.log_type === 'viewid_health' && d.found === false) return true;
+  if (row.log_type === 'shizuku' && d.available === false) return true;
+  if (row.log_type === 'parse' && offer.accept_button_found === false) return true;
+  return false;
+}
+
+function upsertChart(id, config) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), config);
+}
+
+async function fetchRows(days) {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const out = [];
+  let start = 0;
+  const pageSize = 1000;
+
+  while (start < 10000) {
+    const end = start + pageSize - 1;
+    const url = `${SUPABASE_URL}/rest/v1/${TABLE}?select=id,created_at,device_id,log_type,data&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc.nullslast`;
+    const res = await fetch(url, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Range-Unit': 'items',
+        'Range': `${start}-${end}`
+      }
+    });
+    if (!res.ok) throw new Error(`Supabase ${res.status}`);
+    const rows = await res.json();
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    start += pageSize;
+  }
+  return out;
+}
+
+function aggregate(rows, selectedDevice) {
+  const filtered = selectedDevice === 'all' ? rows : rows.filter(r => r.device_id === selectedDevice);
+  const byType = {};
+  const byFailure = {};
+  const byHour = {};
+  const byDevice = {};
+  const failures = [];
+  const devices = [...new Set(rows.map(r => r.device_id).filter(Boolean))];
+
+  let parseTotal = 0, parseSuccess = 0, parseButtonFail = 0;
+  let actionAcceptTotal = 0, actionAcceptSuccess = 0;
+  let viewTotal = 0, viewFail = 0;
+  let shizukuTotal = 0, shizukuUnavailable = 0;
+
+  filtered.forEach(row => {
+    const d = row.data || {};
+    const offer = d.offer || {};
+    const type = row.log_type || 'unknown';
+    const rk = reasonFor(row);
+    const hk = hourKey(row.created_at);
+    const did = row.device_id || 'unknown';
+
+    byType[type] = (byType[type] || 0) + 1;
+    byHour[hk] ||= { parse: 0, action: 0, shizuku: 0, debug: 0, viewid_health: 0, lifecycle: 0, other: 0 };
+    byHour[hk][byHour[hk][type] !== undefined ? type : 'other'] += 1;
+    byDevice[did] ||= { total: 0, fail: 0, shizukuUnavailable: 0, parseButtonFail: 0 };
+    byDevice[did].total += 1;
+
+    if (type === 'parse') {
+      parseTotal += 1;
+      if (d.success !== false) parseSuccess += 1;
+      if (offer.accept_button_found === false) {
+        parseButtonFail += 1;
+        byDevice[did].parseButtonFail += 1;
+      }
+    }
+    if (type === 'action' && d.action === 'accept') {
+      actionAcceptTotal += 1;
+      if (d.success === true) actionAcceptSuccess += 1;
+    }
+    if (type === 'viewid_health') {
+      viewTotal += 1;
+      if (d.found === false) viewFail += 1;
+    }
+    if (type === 'shizuku') {
+      shizukuTotal += 1;
+      if (d.available === false) {
+        shizukuUnavailable += 1;
+        byDevice[did].shizukuUnavailable += 1;
+      }
+    }
+
+    if (isFailure(row)) {
+      byFailure[rk] = (byFailure[rk] || 0) + 1;
+      byDevice[did].fail += 1;
+      failures.push({
+        created_at: row.created_at,
+        type,
+        device_id: did,
+        reason: rk,
+        details: short((d.details && JSON.stringify(d.details)) || offer.pickup || '')
+      });
+    }
+  });
+
+  failures.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return {
+    filtered, devices, byType, byFailure, byHour, byDevice, failures,
+    parseTotal, parseSuccess, parseButtonFail,
+    actionAcceptTotal, actionAcceptSuccess,
+    viewTotal, viewFail,
+    shizukuTotal, shizukuUnavailable
+  };
+}
+
+function render(agg, days) {
+  document.getElementById('kpiTotal').textContent = agg.filtered.length.toLocaleString();
+  document.getElementById('kpiParse').textContent = fmtPct(agg.parseSuccess, agg.parseTotal);
+  document.getElementById('kpiParseHint').textContent = `${agg.parseSuccess}/${agg.parseTotal} success`;
+  document.getElementById('kpiAccept').textContent = fmtPct(agg.actionAcceptSuccess, agg.actionAcceptTotal);
+  document.getElementById('kpiAcceptHint').textContent = `${agg.actionAcceptSuccess}/${agg.actionAcceptTotal} accept actions`;
+  document.getElementById('kpiButton').textContent = fmtPct(agg.parseButtonFail, agg.parseTotal);
+  document.getElementById('kpiButtonHint').textContent = `${agg.parseButtonFail}/${agg.parseTotal} parse rows`;
+  document.getElementById('kpiViewId').textContent = fmtPct(agg.viewFail, agg.viewTotal);
+  document.getElementById('kpiViewIdHint').textContent = `${agg.viewFail}/${agg.viewTotal} health checks`;
+  document.getElementById('kpiShizuku').textContent = fmtPct(agg.shizukuUnavailable, agg.shizukuTotal);
+  document.getElementById('kpiShizukuHint').textContent = `${agg.shizukuUnavailable}/${agg.shizukuTotal} rebind attempts`;
+
+  const typeEntries = Object.entries(agg.byType).sort((a, b) => b[1] - a[1]);
+  upsertChart('typeChart', {
+    type: 'bar',
+    data: {
+      labels: typeEntries.map(([k]) => k),
+      datasets: [{ label: 'count', data: typeEntries.map(([, v]) => v), backgroundColor: ['#60a5fa','#22c55e','#a78bfa','#f59e0b','#ef4444','#14b8a6','#94a3b8'] }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' } } } }
+  });
+
+  const failureEntries = Object.entries(agg.byFailure).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  upsertChart('failureChart', {
+    type: 'bar',
+    data: {
+      labels: failureEntries.map(([k]) => short(k, 20)),
+      datasets: [{ label: 'failures', data: failureEntries.map(([, v]) => v), backgroundColor: '#ef4444' }]
+    },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' } } } }
+  });
+
+  const hours = Object.keys(agg.byHour).sort();
+  upsertChart('timeChart', {
+    type: 'line',
+    data: {
+      labels: hours,
+      datasets: [
+        { label: 'parse', data: hours.map(h => agg.byHour[h].parse), borderColor: '#60a5fa', tension: .25 },
+        { label: 'action', data: hours.map(h => agg.byHour[h].action), borderColor: '#22c55e', tension: .25 },
+        { label: 'shizuku', data: hours.map(h => agg.byHour[h].shizuku), borderColor: '#ef4444', tension: .25 },
+        { label: 'debug', data: hours.map(h => agg.byHour[h].debug), borderColor: '#f59e0b', tension: .25 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#cbd5e1', maxRotation: 0, autoSkip: true } }, y: { ticks: { color: '#cbd5e1' } } }, plugins: { legend: { labels: { color: '#cbd5e1' } } } }
+  });
+
+  const deviceEntries = Object.entries(agg.byDevice).sort((a, b) => b[1].fail - a[1].fail).slice(0, 8);
+  upsertChart('deviceChart', {
+    type: 'bar',
+    data: {
+      labels: deviceEntries.map(([k]) => `${k.slice(0, 8)}…`),
+      datasets: [
+        { label: 'fail', data: deviceEntries.map(([, v]) => v.fail), backgroundColor: '#ef4444' },
+        { label: 'button_fail', data: deviceEntries.map(([, v]) => v.parseButtonFail), backgroundColor: '#f59e0b' },
+        { label: 'shizuku_unavailable', data: deviceEntries.map(([, v]) => v.shizukuUnavailable), backgroundColor: '#a78bfa' }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#cbd5e1' } }, y: { ticks: { color: '#cbd5e1' } } }, plugins: { legend: { labels: { color: '#cbd5e1' } } } }
+  });
+
+  const warningPills = [];
+  if (agg.shizukuUnavailable > 0) warningPills.push(`Shizuku 비가용 ${agg.shizukuUnavailable}건`);
+  if (agg.parseButtonFail > 0) warningPills.push(`수락 버튼 탐지 실패 ${agg.parseButtonFail}건`);
+  if (agg.viewFail > 0) warningPills.push(`ViewID 실패 ${agg.viewFail}건`);
+  if (!warningPills.length) warningPills.push('큰 경고 없음');
+  document.getElementById('warningPills').innerHTML = warningPills.map(x => `<div class="pill">${x}</div>`).join('');
+
+  document.getElementById('failureTable').innerHTML = agg.failures.slice(0, 12).map(r => `
+    <tr>
+      <td class="small">${new Date(r.created_at).toLocaleString('ko-KR')}</td>
+      <td><span class="mono">${r.type}</span></td>
+      <td>${short(r.reason, 48)}<div class="small">${r.details || ''}</div></td>
+      <td class="mono">${r.device_id.slice(0, 8)}…</td>
+    </tr>`).join('') || '<tr><td colspan="4">실패 샘플 없음</td></tr>';
+
+  const actions = [];
+  if (agg.shizukuUnavailable > 0) actions.push(['Shizuku', `${days}일 동안 비가용/재바인드 실패가 ${agg.shizukuUnavailable}건 발생`, '권한/바인더 상태를 앱 내 진단 카드로 노출하고, trigger별 burst_attempts 상위 기기부터 점검']);
+  if (agg.parseButtonFail > 0) actions.push(['Parser', `${days}일 동안 accept_button_found=false가 ${agg.parseButtonFail}건`, '버튼 탐지를 텍스트+ViewID+bounds 다중 특징으로 묶고, 실패 시 ui_summary_btns를 함께 저장']);
+  if (agg.viewFail > 0) actions.push(['ViewID', `${days}일 동안 view_id 미탐지 ${agg.viewFail}건`, 'pickup/dropoff/distance/duration ViewID별 발견율을 릴리즈 전후 비교하고 새 signature 등장 시 알림']);
+  if (agg.actionAcceptTotal && agg.actionAcceptSuccess < agg.actionAcceptTotal) actions.push(['Action', `accept 액션 성공률 ${fmtPct(agg.actionAcceptSuccess, agg.actionAcceptTotal)}`, 'Shizuku 우선 + dispatchGesture 폴백 로그를 분리하고 실패시 tap 좌표와 overlay 좌표 오차를 남기기']);
+  if (!actions.length) actions.push(['운영', '현재 데이터상 치명 경고는 작음', '다음 단계로 릴리즈 비교 카드(app_version/git_tag)를 추가하는 게 좋음']);
+  document.getElementById('actionsTable').innerHTML = actions.map(a => `<tr><td>${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td></tr>`).join('');
+}
+
+async function refresh() {
+  const days = Number(document.getElementById('rangeSelect').value);
+  const device = document.getElementById('deviceSelect').value;
+  const statusBox = document.getElementById('statusBox');
+  statusBox.textContent = 'Supabase에서 로그를 불러오는 중...';
+  try {
+    const rows = await fetchRows(days);
+    const allDevices = [...new Set(rows.map(r => r.device_id).filter(Boolean))];
+    const select = document.getElementById('deviceSelect');
+    const current = select.value;
+    select.innerHTML = '<option value="all">전체 디바이스</option>' + allDevices.map(d => `<option value="${d}">${d.slice(0, 8)}…</option>`).join('');
+    if (allDevices.includes(current)) select.value = current;
+    const agg = aggregate(rows, device);
+    render(agg, days);
+    statusBox.textContent = `최근 ${days}일 로그 ${rows.length.toLocaleString()}건 로드 완료 · 마지막 새로고침 ${new Date().toLocaleString('ko-KR')}`;
+  } catch (e) {
+    statusBox.textContent = `불러오기 실패: ${e.message}`;
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('rangeSelect').addEventListener('change', refresh);
+document.getElementById('deviceSelect').addEventListener('change', refresh);
+refresh();
+</script>
+</body>
+</html>

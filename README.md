@@ -97,16 +97,17 @@ curl -s "https://czqnybgoaeihwvgdtvgn.supabase.co/rest/v1/uber_users?select=devi
 
 ### 운영 로그 대시보드
 
-GitHub Pages를 같은 `/web` 폴더에 물리면 정적 대시보드도 같이 볼 수 있습니다.
+GitHub Pages는 브랜치의 `/docs` 폴더를 바로 배포할 수 있습니다.
 
-- **대시보드 파일**: `web/logs.html`
-- **예상 URL**: `https://mim1012.github.io/UberAutoAccept/logs.html` 또는 커스텀 Pages 도메인 하위 경로
+- **대시보드 파일**: `docs/logs.html`
+- **진입 파일**: `docs/index.html` → `logs.html`로 자동 이동
+- **예상 URL**: `https://mim1012.github.io/UberAutoAccept/`
 - **용도**: 최근 1/3/7일 Uber 로그를 Supabase에서 직접 읽어와서 파싱 성공률, 수락 성공률, 버튼 탐지 실패율, ViewID 실패율, Shizuku 비가용률, 실패 TopN을 시각화
 - **설정 방법**:
   1. GitHub repo → Settings → Pages
   2. Build and deployment → Deploy from a branch
-  3. Branch: `master`, Folder: `/web`
-  4. 저장 후 배포 완료되면 `logs.html` 경로로 접속
+  3. Branch: `feat/log-dashboard`(테스트용) 또는 `master`(머지 후), Folder: `/docs`
+  4. 저장 후 배포 완료되면 repo Pages URL 접속
 - **주의**: 브라우저에 들어가는 키는 anon key만 사용. service_role 키는 절대 넣지 않음.
 
 ### GitHub Secrets
