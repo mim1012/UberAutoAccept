@@ -33,6 +33,7 @@ class UberAccessibilityService : AccessibilityService() {
         private const val UBER_PACKAGE = UberOfferGate.UBER_DRIVER_PACKAGE
         private const val ACTION_ENGINE_START = "com.uber.autoaccept.ACTION_ENGINE_START"
         private const val ACTION_ENGINE_STOP = "com.uber.autoaccept.ACTION_ENGINE_STOP"
+        private const val OFFER_LOGCAT_TAG = "UAA_OFFER"
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -148,6 +149,26 @@ class UberAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun formatOfferLogDetails(details: Map<String, Any?>): String {
+        if (details.isEmpty()) return "-"
+        return details.entries.joinToString(",") { (key, value) -> "$key=${value ?: "null"}" }
+    }
+
+    private fun logOfferSnapshot(
+        stage: String,
+        source: String,
+        root: AccessibilityNodeInfo?,
+        traceContext: OfferTraceContext? = null,
+        details: Map<String, Any?> = emptyMap()
+    ) {
+        if (root == null) return
+        val snapshot = com.uber.autoaccept.utils.AccessibilityHelper.buildOfferDebugLine(root)
+        Log.i(
+            OFFER_LOGCAT_TAG,
+            "[trace=${traceContext?.traceId ?: "none"}][$source/$stage] pkg=${root.packageName ?: "null"} class=${root.className ?: "null"} details=${formatOfferLogDetails(details)} $snapshot"
+        )
+    }
+
     private fun dispatchDetectedOffer(
         offerRoot: AccessibilityNodeInfo,
         source: String,
@@ -155,6 +176,7 @@ class UberAccessibilityService : AccessibilityService() {
         details: Map<String, Any?> = emptyMap(),
         traceContext: OfferTraceContext = newOfferTraceContext(source, stage)
     ) {
+        logOfferSnapshot(stage, source, offerRoot, traceContext, details)
         RemoteLogger.logOfferDetection(
             stage = "trigger_parse",
             source = source,
@@ -175,6 +197,11 @@ class UberAccessibilityService : AccessibilityService() {
         ServiceState.init(this)
         ServiceState.setAccessibilityConnected(true)
         val wasRestored = ServiceState.restoreIfNeeded()
+        if (!ServiceState.isActive()) {
+            Log.i(OFFER_LOGCAT_TAG, "[service_connected] activating ServiceState for debug-offer tracing")
+            ServiceState.start("onServiceConnected_auto")
+            RemoteLogger.logRecovery("engine", "service_connected_auto_start", true, mapOf("was_restored" to wasRestored))
+        }
 
         // 설정 로드
         config = loadConfig()
@@ -573,6 +600,7 @@ class UberAccessibilityService : AccessibilityService() {
                 val markerId = offerMarker.first
                 val strongMarker = UberOfferGate.confirmationMarkers(listOf(markerId)).isNotEmpty()
                 Log.i(TAG, "[OFFER_GATE] confirmed by viewId=$markerId strong=$strongMarker")
+                logOfferSnapshot("viewid_gate_confirmed", source, root, traceContext, mapOf("view_id" to markerId, "strong_marker" to strongMarker))
                 RemoteLogger.logOfferDetection(
                     stage = "viewid_gate_confirmed",
                     source = source,
@@ -588,6 +616,7 @@ class UberAccessibilityService : AccessibilityService() {
             }
             if (helper.findNodeByText(root, "콜 수락", exactMatch = true) != null) {
                 Log.w(TAG, "findOfferWindow → 반환: pkg=${root.packageName} (콜수락 즉시 감지)")
+                logOfferSnapshot("text_gate_confirmed", source, root, traceContext, mapOf("text" to "\uCF5C \uC218\uB77D"))
                 RemoteLogger.logOfferDetection(
                     stage = "text_gate_confirmed",
                     source = source,
@@ -612,6 +641,7 @@ class UberAccessibilityService : AccessibilityService() {
             RemoteLogger.logViewIdHealth("uda_details_pickup_address_text_view", pickupNode != null)
             RemoteLogger.logViewIdHealth("uda_details_dropoff_address_text_view", dropoffNode != null)
             if (pickupNode != null && dropoffNode != null) {
+                logOfferSnapshot("address_gate_confirmed", source, root, traceContext, mapOf("match_type" to "pickup_dropoff_viewids"))
                 RemoteLogger.logOfferDetection(
                     stage = "address_gate_confirmed",
                     source = source,
@@ -653,6 +683,7 @@ class UberAccessibilityService : AccessibilityService() {
                         .joinToString(prefix = "[", postfix = "]") { (rid, cls, summary) ->
                             "($rid|$cls|${summary.replace("|", "/")})"
                         }
+                    logOfferSnapshot("offer_window_ui_summary", source, sampleRoot, traceContext, mapOf("root_count" to roots.size))
                     RemoteLogger.logOfferDetection(
                         stage = "offer_window_ui_summary",
                         source = source,
@@ -660,7 +691,8 @@ class UberAccessibilityService : AccessibilityService() {
                         details = mapOf(
                             "ui_summary" to "ids=$ids addrs=$addrs btns=$btns",
                             "package_name" to (sampleRoot.packageName?.toString() ?: "null")
-                        )
+                        ),
+                        traceContext = traceContext
                     )
                 } catch (_: Exception) {}
             }

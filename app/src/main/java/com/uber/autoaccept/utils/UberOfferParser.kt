@@ -3,6 +3,7 @@ package com.uber.autoaccept.utils
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.logging.RemoteLogger
+import com.uber.autoaccept.model.OfferTraceContext
 import com.uber.autoaccept.model.ParseConfidence
 import com.uber.autoaccept.model.UberOffer
 import java.util.UUID
@@ -10,6 +11,9 @@ import java.util.UUID
 class UberOfferParser {
     companion object {
         private const val TAG = "UberOfferParser"
+        private const val OFFER_LOGCAT_TAG = "UAA_OFFER"
+        private val ADDRESS_TERMS = listOf("\uC2DC", "\uAD6C", "\uB3D9", "\uB85C", "\uAE38", "\uC5ED", "\uD130\uBBF8\uB110")
+        private val ACCEPT_TEXTS = listOf("\uCF5C \uC218\uB77D", "\uC218\uB77D", "Accept", "ACCEPT")
         private val DROPOFF_FALLBACK_IDS = listOf(
             "uda_offer_details_title",
             "uda_offer_details_subtitle",
@@ -31,56 +35,18 @@ class UberOfferParser {
 
     fun parseOfferDetails(
         rootNode: AccessibilityNodeInfo,
-        existingTraceContext: com.uber.autoaccept.model.OfferTraceContext? = null
+        existingTraceContext: OfferTraceContext? = null
     ): UberOffer? {
         return parseByViewId(rootNode, existingTraceContext)
     }
 
     private fun parseByViewId(
         rootNode: AccessibilityNodeInfo,
-        existingTraceContext: com.uber.autoaccept.model.OfferTraceContext?
+        existingTraceContext: OfferTraceContext?
     ): UberOffer? {
         try {
             val addressMatch = findAddresses(rootNode) ?: run {
-                Log.w(TAG, "Address extraction failed")
-                try {
-                    val ids = AccessibilityHelper.collectResourceIds(rootNode).entries
-                        .sortedByDescending { it.value }
-                        .take(30)
-                        .joinToString(prefix = "[", postfix = "]") { "${it.key}:${it.value}" }
-                    val addrs = AccessibilityHelper.findAddressLikeNodes(rootNode, 10)
-                        .joinToString(prefix = "[", postfix = "]") { (rid, cls, summary) ->
-                            "($rid|$cls|${summary.replace("|", "/")})"
-                        }
-                    val btns = AccessibilityHelper.findAcceptButtonCandidates(rootNode, 5)
-                        .joinToString(prefix = "[", postfix = "]") { (rid, cls, summary) ->
-                            "($rid|$cls|${summary.replace("|", "/")})"
-                        }
-                    RemoteLogger.logParseResult(
-                        false,
-                        null,
-                        "ADDR_FAIL",
-                        mapOf(
-                            "trace_id" to existingTraceContext?.traceId,
-                            "error_code" to "ADDR_FAIL",
-                            "failure_stage" to "find_addresses",
-                            "ui_summary_ids" to ids,
-                            "ui_summary_addrs" to addrs,
-                            "ui_summary_btns" to btns
-                        )
-                    )
-                } catch (_: Exception) {
-                    RemoteLogger.logParseResult(
-                        false,
-                        null,
-                        "ADDR_FAIL",
-                        mapOf(
-                            "trace_id" to existingTraceContext?.traceId,
-                            "error_code" to "ADDR_FAIL",
-                            "failure_stage" to "find_addresses"
-                        )
-                    )
-                }
+                logParseFailure(rootNode, existingTraceContext)
                 return null
             }
 
@@ -94,23 +60,15 @@ class UberOfferParser {
             val customerDistance = extractCustomerDistance(rootNode)
             val acceptBtn = findAcceptButton(rootNode)
 
-            Log.d(
-                TAG,
-                """
-                Offer parsed (${addressMatch.confidence}):
-                - pickup: ${addressMatch.pickup}
-                - dropoff: ${addressMatch.dropoff}
-                - customerDistance: ${customerDistance}km
-                - tripDistance: ${tripDistance}km
-                - acceptButtonFound: ${acceptBtn != null}
-                - parserSource: ${addressMatch.parserSource}
-                """.trimIndent()
-            )
-
-            val traceContext = existingTraceContext ?: com.uber.autoaccept.model.OfferTraceContext(
+            val traceContext = existingTraceContext ?: OfferTraceContext(
                 traceId = UUID.randomUUID().toString(),
                 detectionSource = "parser",
                 detectionStage = "parse"
+            )
+
+            Log.i(
+                OFFER_LOGCAT_TAG,
+                "[trace=${traceContext.traceId}] parse_success parser=${addressMatch.parserSource} pickupId=${addressMatch.pickupViewId} dropoffId=${addressMatch.dropoffViewId} acceptFound=${acceptBtn != null} customerKm=$customerDistance tripKm=$tripDistance"
             )
 
             return UberOffer(
@@ -133,6 +91,7 @@ class UberOfferParser {
             )
         } catch (e: Exception) {
             Log.e(TAG, "ViewId parse error: ${e.message}", e)
+            Log.e(OFFER_LOGCAT_TAG, "[trace=${existingTraceContext?.traceId ?: "none"}] parse_exception error=${e.message}")
             RemoteLogger.logParseResult(
                 false,
                 null,
@@ -147,12 +106,55 @@ class UberOfferParser {
         }
     }
 
+    private fun logParseFailure(rootNode: AccessibilityNodeInfo, traceContext: OfferTraceContext?) {
+        Log.w(TAG, "Address extraction failed")
+        try {
+            val ids = AccessibilityHelper.collectResourceIds(rootNode).entries
+                .sortedByDescending { it.value }
+                .take(30)
+                .joinToString(prefix = "[", postfix = "]") { "${it.key}:${it.value}" }
+            val addrs = AccessibilityHelper.findAddressLikeNodes(rootNode, 10)
+                .joinToString(prefix = "[", postfix = "]") { (rid, cls, summary) ->
+                    "($rid|$cls|${summary.replace("|", "/")})"
+                }
+            val btns = AccessibilityHelper.findAcceptButtonCandidates(rootNode, 5)
+                .joinToString(prefix = "[", postfix = "]") { (rid, cls, summary) ->
+                    "($rid|$cls|${summary.replace("|", "/")})"
+                }
+            val snapshot = AccessibilityHelper.buildOfferDebugLine(rootNode)
+            Log.w(OFFER_LOGCAT_TAG, "[trace=${traceContext?.traceId ?: "none"}] parse_fail ids=$ids addrs=$addrs btns=$btns snapshot=$snapshot")
+            RemoteLogger.logParseResult(
+                false,
+                null,
+                "ADDR_FAIL",
+                mapOf(
+                    "trace_id" to traceContext?.traceId,
+                    "error_code" to "ADDR_FAIL",
+                    "failure_stage" to "find_addresses",
+                    "ui_summary_ids" to ids,
+                    "ui_summary_addrs" to addrs,
+                    "ui_summary_btns" to btns
+                )
+            )
+        } catch (_: Exception) {
+            RemoteLogger.logParseResult(
+                false,
+                null,
+                "ADDR_FAIL",
+                mapOf(
+                    "trace_id" to traceContext?.traceId,
+                    "error_code" to "ADDR_FAIL",
+                    "failure_stage" to "find_addresses"
+                )
+            )
+        }
+    }
+
     private fun findAddresses(rootNode: AccessibilityNodeInfo): AddressMatch? {
         fun looksLikeAddress(text: String?): Boolean {
             if (text.isNullOrBlank()) return false
             if (text.length < 5) return false
-            val terms = listOf("시", "구", "동", "로", "길", "역", "터미널")
-            return terms.any { text.contains(it) }
+            return ADDRESS_TERMS.any { text.contains(it) }
         }
 
         fun findTextByViewId(viewId: String): String? {
@@ -257,18 +259,11 @@ class UberOfferParser {
         }
 
         val allText = AccessibilityHelper.extractAllText(rootNode)
-        val parenPattern = Regex("\\(([\\d.]+)km\\)")
-        val parenMatch = parenPattern.find(allText)
-        if (parenMatch != null) {
-            val distance = parenMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-            if (distance >= 0) return distance
-        }
-
         val patterns = listOf(
-            Regex("\\d+분\\(([\\d.]+)km\\)\\s*남음"),
-            Regex("픽업까지\\s*([\\d.]+)\\s*km"),
+            Regex("\\(([\\d.]+)km\\)"),
             Regex("([\\d.]+)\\s*km\\s*away", RegexOption.IGNORE_CASE),
-            Regex("([\\d.]+)\\s*km\\s*to\\s*pickup", RegexOption.IGNORE_CASE)
+            Regex("([\\d.]+)\\s*km\\s*to\\s*pickup", RegexOption.IGNORE_CASE),
+            Regex("([\\d.]+)\\s*km", RegexOption.IGNORE_CASE)
         )
 
         for (pattern in patterns) {
@@ -283,8 +278,7 @@ class UberOfferParser {
     }
 
     private fun findAcceptButton(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val textVariants = listOf("콜 수락", "수락", "Accept", "ACCEPT")
-        for (text in textVariants) {
+        for (text in ACCEPT_TEXTS) {
             try {
                 val nodes = rootNode.findAccessibilityNodeInfosByText(text) ?: continue
                 val node = nodes.firstOrNull { it.text?.toString() == text } ?: nodes.firstOrNull()
