@@ -572,6 +572,22 @@ object DistanceParser {
         }
     }
 
+    fun parsePickupEtaDistance(text: String?): Double {
+        if (text.isNullOrBlank()) return 0.0
+        val patterns = listOf(
+            Regex("\\(([\\d.]+)km\\)"),
+            Regex("([\\d.]+)\\s*km\\s*남음"),
+            Regex("([\\d.]+)\\s*km")
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(text)
+            if (match != null) {
+                return match.groupValues.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+            }
+        }
+        return parseDistance(text)
+    }
+
     fun parseDuration(text: String?): Int {
         if (text.isNullOrBlank()) return 0
         return try {

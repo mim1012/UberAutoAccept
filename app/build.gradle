@@ -116,6 +116,9 @@ dependencies {
     // OpenCV - 오퍼 화면 시각적 감지 (버튼 색상/윤곽선 검출)
     implementation 'org.opencv:opencv:4.9.0'
 
+    // ML Kit OCR - 접근성 텍스트가 비는 짧은 오퍼 카드용 폴백
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+
     // Sentry Android SDK (에러 모니터링)
     implementation 'io.sentry:sentry-android:7.3.0'
     
