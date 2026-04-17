@@ -55,6 +55,7 @@ class UberAccessibilityService : AccessibilityService() {
     private lateinit var screenshotManager: ScreenshotManager
     private val offerCardDetector = OfferCardDetector()
     var openCVButtonRect: android.graphics.Rect? = null
+    var latestOfferCardRect: android.graphics.Rect? = null
 
     private val configReloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -253,7 +254,7 @@ class UberAccessibilityService : AccessibilityService() {
             traceContext = traceContext,
             pickupLocation = pickup!!,
             dropoffLocation = dropoff!!,
-            customerDistance = com.uber.autoaccept.utils.DistanceParser.parseDistance(contentSignal.textCluster.pickupEtaText),
+            customerDistance = com.uber.autoaccept.utils.DistanceParser.parsePickupEtaDistance(contentSignal.textCluster.pickupEtaText),
             tripDistance = 0.0,
             estimatedFare = 0,
             estimatedTime = com.uber.autoaccept.utils.DistanceParser.parseDuration(contentSignal.textCluster.tripDurationText),
@@ -379,7 +380,13 @@ class UberAccessibilityService : AccessibilityService() {
             acceptingHandler.targetClickPoint = android.graphics.PointF(cx, cy)
         }
         stateHandlers.clear()
-        stateHandlers.add(OfferDetectedHandler(parser))
+        stateHandlers.add(
+            OfferDetectedHandler(
+                parser = parser,
+                screenshotProvider = { screenshotManager.capture() },
+                ocrScopeRectProvider = { latestOfferCardRect }
+            )
+        )
         stateHandlers.add(OfferAnalyzingHandler(filterEngine))
         stateHandlers.add(ReadyToAcceptHandler(config))
         stateHandlers.add(acceptingHandler)
@@ -638,6 +645,7 @@ class UberAccessibilityService : AccessibilityService() {
         val bitmap = screenshotManager.capture() ?: return
         try {
             val cardResult = offerCardDetector.detect(bitmap) ?: return
+            latestOfferCardRect = cardResult.cardRect
             openCVButtonRect = cardResult.buttonRect
 
             val signature = listOf(
