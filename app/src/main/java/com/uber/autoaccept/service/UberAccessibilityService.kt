@@ -212,8 +212,70 @@ class UberAccessibilityService : AccessibilityService() {
         stateMachine.handleEvent(StateEvent.NewOfferAppeared(offerRoot, traceContext))
     }
 
+    private fun maybeCachePrefetchedOffer(
+        root: AccessibilityNodeInfo,
+        traceContext: OfferTraceContext?,
+        contentSignal: com.uber.autoaccept.utils.OfferContentSignal
+    ) {
+        if (traceContext == null || !contentSignal.isStructuredOffer) return
+
+        val orderedTexts = com.uber.autoaccept.utils.AccessibilityHelper.extractOrderedTexts(root)
+        val virtualCandidates = com.uber.autoaccept.utils.AccessibilityHelper.collectVirtualAddressTexts(root)
+        val addressCandidates = com.uber.autoaccept.utils.AccessibilityHelper.selectAddressCandidates(
+            orderedTexts,
+            virtualCandidates
+        )
+        val pickup = contentSignal.textCluster.pickupAddress ?: addressCandidates.getOrNull(0)
+        val dropoff = contentSignal.textCluster.dropoffAddress ?: addressCandidates.getOrNull(1)
+        if (!com.uber.autoaccept.utils.AccessibilityHelper.looksLikeAddressText(pickup) ||
+            !com.uber.autoaccept.utils.AccessibilityHelper.looksLikeAddressText(dropoff)
+        ) return
+
+        val acceptButton = com.uber.autoaccept.utils.AccessibilityHelper.findFirstNodeByViewIds(
+            root,
+            listOf(
+                "uda_details_accept_button",
+                "upfront_offer_configurable_details_accept_button",
+                "upfront_offer_configurable_details_auditable_accept_button"
+            )
+        )?.second ?: com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, "콜 수락")
+            ?: com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, "수락")
+            ?: com.uber.autoaccept.utils.AccessibilityHelper.findNodeByText(root, "Accept")
+
+        val parserSource = when {
+            contentSignal.textCluster.pickupAddress != null && contentSignal.textCluster.dropoffAddress != null -> "prefetched_text_cluster"
+            virtualCandidates.isNotEmpty() -> "prefetched_virtual_text"
+            else -> "prefetched_content_signal"
+        }
+
+        val prefetchedOffer = UberOffer(
+            offerUuid = traceContext.traceId,
+            traceContext = traceContext,
+            pickupLocation = pickup!!,
+            dropoffLocation = dropoff!!,
+            customerDistance = com.uber.autoaccept.utils.DistanceParser.parseDistance(contentSignal.textCluster.pickupEtaText),
+            tripDistance = 0.0,
+            estimatedFare = 0,
+            estimatedTime = com.uber.autoaccept.utils.DistanceParser.parseDuration(contentSignal.textCluster.tripDurationText),
+            acceptButtonBounds = acceptButton?.let { com.uber.autoaccept.utils.AccessibilityHelper.getBounds(it) },
+            acceptButtonNode = acceptButton,
+            parseConfidence = ParseConfidence.MEDIUM,
+            parserSource = parserSource,
+            pickupViewId = if (parserSource == "prefetched_text_cluster") "text_cluster_prefetch_pickup" else "virtual_text_prefetch_pickup",
+            dropoffViewId = if (parserSource == "prefetched_text_cluster") "text_cluster_prefetch_dropoff" else "virtual_text_prefetch_dropoff",
+            pickupValidated = true,
+            dropoffValidated = true
+        )
+        UberOfferParser.cachePrefetchedOffer(prefetchedOffer)
+        Log.i(
+            OFFER_LOGCAT_TAG,
+            "[trace=${traceContext.traceId}] prefetched_offer parser=$parserSource pickup=${pickup.take(40)} dropoff=${dropoff.take(40)} addrCandidates=${addressCandidates.size}"
+        )
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+
         Log.i(TAG, "서비스 연결됨")
         Log.i("UAA", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         Log.i("UAA", "[SERVICE] ✅ 접근성 서비스 연결됨")
@@ -668,6 +730,7 @@ class UberAccessibilityService : AccessibilityService() {
             val contentSignal = helper.inspectOfferContent(root)
             if (contentSignal.isStructuredOffer) {
                 val textCluster = contentSignal.textCluster
+                maybeCachePrefetchedOffer(root, traceContext, contentSignal)
                 logOfferSnapshot(
                     "content_signal_confirmed",
                     source,

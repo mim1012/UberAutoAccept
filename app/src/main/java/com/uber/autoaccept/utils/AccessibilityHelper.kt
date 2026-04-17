@@ -236,7 +236,7 @@ object AccessibilityHelper {
         val acceptText = normalizedTexts.firstOrNull { text ->
             ACCEPT_TERMS.any { term -> text.contains(term, ignoreCase = true) }
         }
-        val addressCandidates = normalizedTexts.filter(::looksLikeAddressText)
+        val addressCandidates = selectAddressCandidates(normalizedTexts)
         val directionText = normalizedTexts.firstOrNull {
             DIRECTION_REGEX.matches(it) || it.endsWith("\uCABD")
         }
@@ -328,13 +328,75 @@ object AccessibilityHelper {
         )
     }
 
+    private fun scoreAddressCandidate(text: String): Int {
+        val candidate = text.trim()
+        if (candidate.length < 6) return 0
+        if (candidate.endsWith("\uCABD")) return 0
+        if (NON_OFFER_TEXTS.any { candidate.contains(it, ignoreCase = true) }) return 0
+        if (ACCEPT_TERMS.any { candidate.contains(it, ignoreCase = true) }) return 0
+        if (TRIP_DURATION_REGEX.containsMatchIn(candidate) || PICKUP_ETA_REGEX.containsMatchIn(candidate)) return 0
+
+        var score = 0
+        val termHits = ADDRESS_TERMS.count { candidate.contains(it) }
+        score += termHits * 2
+        if (candidate.contains(",")) score += 2
+        if (candidate.contains("대한민국")) score += 2
+        if (candidate.contains("특별시") || candidate.contains("광역시")) score += 2
+        if (candidate.contains("공항") || candidate.contains("터미널")) score += 2
+        if (candidate.any { it.isDigit() }) score += 1
+        return score
+    }
+
+    fun selectAddressCandidates(
+        texts: List<String>,
+        extraCandidates: List<String> = emptyList(),
+        limit: Int = 4
+    ): List<String> {
+        if (texts.isEmpty() && extraCandidates.isEmpty()) return emptyList()
+
+        val merged = (texts + extraCandidates)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        val scored = linkedMapOf<String, Int>()
+        for (candidate in merged) {
+            val score = scoreAddressCandidate(candidate)
+            if (score <= 0) continue
+            val current = scored[candidate]
+            if (current == null || score > current) {
+                scored[candidate] = score
+            }
+        }
+
+        return scored.entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { it.key }
+    }
+
+    fun collectVirtualAddressTexts(root: AccessibilityNodeInfo?): List<String> {
+        if (root == null) return emptyList()
+        val ordered = linkedSetOf<String>()
+        val keywords = listOf("\uB3D9", "\uB85C", "\uAE38", "\uACF5\uD56D", "\uD130\uBBF8\uB110", "\uD2B9\uBCC4\uC2DC", "\uAD11\uC5ED\uC2DC")
+        for (keyword in keywords) {
+            val nodes = try {
+                root.findAccessibilityNodeInfosByText(keyword)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            for (node in nodes) {
+                val text = node.text?.toString()?.trim().orEmpty()
+                if (text.isNotBlank()) ordered.add(text)
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                if (desc.isNotBlank()) ordered.add(desc)
+            }
+        }
+        return ordered.toList()
+    }
+
     fun looksLikeAddressText(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
-        val candidate = text.trim()
-        if (candidate.length < 8) return false
-        if (candidate.endsWith("\uCABD")) return false
-        val termHits = ADDRESS_TERMS.count { candidate.contains(it) }
-        return termHits >= 2 || candidate.contains(",")
+        return scoreAddressCandidate(text) >= 4
     }
 
     fun buildOfferDebugLine(root: AccessibilityNodeInfo?): String {
