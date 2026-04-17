@@ -267,10 +267,9 @@ class UberOfferParser {
             }
         }
 
-        val textCluster = AccessibilityHelper.summarizeOfferTexts(
-            AccessibilityHelper.extractOrderedTexts(rootNode),
-            AccessibilityHelper.collectResourceIds(rootNode).keys
-        )
+        val orderedTexts = AccessibilityHelper.extractOrderedTexts(rootNode)
+        val resourceIds = AccessibilityHelper.collectResourceIds(rootNode).keys
+        val textCluster = AccessibilityHelper.summarizeOfferTexts(orderedTexts, resourceIds)
         if (textCluster.isLikelyOffer &&
             looksLikeAddress(textCluster.pickupAddress) &&
             looksLikeAddress(textCluster.dropoffAddress)
@@ -282,6 +281,29 @@ class UberOfferParser {
                 parserSource = "text_cluster",
                 pickupViewId = "text_cluster_pickup",
                 dropoffViewId = "text_cluster_dropoff",
+                pickupValidated = true,
+                dropoffValidated = true
+            )
+        }
+
+        val virtualAddressCandidates = AccessibilityHelper.selectAddressCandidates(
+            orderedTexts,
+            AccessibilityHelper.collectVirtualAddressTexts(rootNode)
+        )
+        val virtualPickup = virtualAddressCandidates.getOrNull(0)
+        val virtualDropoff = virtualAddressCandidates.getOrNull(1)
+        val hasOfferSupport = textCluster.acceptText != null ||
+            textCluster.tripDurationText != null ||
+            textCluster.pickupEtaText != null ||
+            resourceIds.any { it.startsWith("map_marker") || it == "rxmap" || it == "map" }
+        if (hasOfferSupport && looksLikeAddress(virtualPickup) && looksLikeAddress(virtualDropoff)) {
+            return AddressMatch(
+                pickup = virtualPickup!!,
+                dropoff = virtualDropoff!!,
+                confidence = ParseConfidence.LOW,
+                parserSource = if (textCluster.isLikelyOffer) "virtual_text_cluster" else "virtual_text_search",
+                pickupViewId = "virtual_text_pickup",
+                dropoffViewId = "virtual_text_dropoff",
                 pickupValidated = true,
                 dropoffValidated = true
             )

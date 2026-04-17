@@ -63,4 +63,33 @@ class AccessibilityHelperTextClusterTest {
         assertEquals(null, cluster.pickupEtaText)
         assertEquals(emptyList<String>(), cluster.addressCandidates)
     }
+
+    @Test
+    fun `select address candidates prefers full address strings from mixed text`() {
+        val texts = listOf(
+            "콜 수락",
+            "7분(2.0km) 남음",
+            "대한민국 서울특별시 중구 을지로 30",
+            "공중전화, 서울특별시 중구 남대문로2가",
+            "홈"
+        )
+
+        val candidates = AccessibilityHelper.selectAddressCandidates(texts)
+
+        assertEquals(
+            listOf(
+                "공중전화, 서울특별시 중구 남대문로2가",
+                "대한민국 서울특별시 중구 을지로 30"
+            ),
+            candidates.take(2)
+        )
+    }
+
+    @Test
+    fun `looksLikeAddressText accepts short but specific address lines`() {
+        assertTrue(AccessibilityHelper.looksLikeAddressText("대한민국 서울특별시 중구 을지로 30"))
+        assertTrue(AccessibilityHelper.looksLikeAddressText("공중전화, 서울특별시 중구 남대문로2가"))
+        assertFalse(AccessibilityHelper.looksLikeAddressText("콜 수락"))
+        assertFalse(AccessibilityHelper.looksLikeAddressText("7분(2.0km) 남음"))
+    }
 }

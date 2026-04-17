@@ -1,5 +1,7 @@
 package com.uber.autoaccept.state
 
+import android.graphics.Bitmap
+import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.engine.FilterEngine
@@ -7,10 +9,15 @@ import com.uber.autoaccept.logging.ParsedOfferData
 import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.utils.GestureClicker
+import com.uber.autoaccept.utils.OcrOfferParser
 import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.delay
 
-class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandler() {
+class OfferDetectedHandler(
+    private val parser: UberOfferParser,
+    private val screenshotProvider: suspend () -> Bitmap?,
+    private val ocrScopeRectProvider: () -> Rect?
+) : BaseStateHandler() {
     override fun canHandle(state: AppState): Boolean = state is AppState.OfferDetected
 
     override suspend fun handle(state: AppState, rootNode: AccessibilityNodeInfo?): StateEvent? {
@@ -33,51 +40,101 @@ class OfferDetectedHandler(private val parser: UberOfferParser) : BaseStateHandl
         }
 
         return if (offer != null) {
-            Log.i(
-                "UAA",
-                "[PARSE] success (attempt=${attempt + 1}) | pickup=${offer.pickupLocation} | dropoff=${offer.dropoffLocation} | parser=${offer.parserSource}"
-            )
-            RemoteLogger.logParseResult(
-                success = true,
-                offerData = ParsedOfferData(
-                    offerUuid = offer.offerUuid,
-                    traceId = offer.traceContext?.traceId,
-                    pickup = offer.pickupLocation,
-                    dropoff = offer.dropoffLocation,
-                    customerDistance = offer.customerDistance,
-                    tripDistance = offer.tripDistance,
-                    parseConfidence = offer.parseConfidence.name,
-                    acceptButtonFound = offer.acceptButtonNode != null,
-                    parserSource = offer.parserSource,
-                    pickupViewId = offer.pickupViewId,
-                    dropoffViewId = offer.dropoffViewId,
-                    pickupValidated = offer.pickupValidated,
-                    dropoffValidated = offer.dropoffValidated
-                ),
-                error = null,
-                details = mapOf(
-                    "trace_id" to offer.traceContext?.traceId,
-                    "parser_source" to offer.parserSource,
-                    "pickup_view_id" to offer.pickupViewId,
-                    "dropoff_view_id" to offer.dropoffViewId,
-                    "parse_attempt" to (attempt + 1)
-                )
-            )
+            logParseSuccess(offer, attempt + 1)
             StateEvent.OfferParsed(offer)
         } else {
-            Log.e("UAA", "[PARSE] failed after retry=3")
-            RemoteLogger.logParseResult(
-                success = false,
-                offerData = null,
-                error = "ViewId/텍스트 파싱 실패 (retry=3)",
-                details = mapOf(
-                    "trace_id" to traceContext?.traceId,
-                    "error_code" to "PARSE_FAILED_AFTER_RETRY",
-                    "failure_stage" to "offer_detected_handler",
-                    "retry_count" to attempt
+            val ocrOffer = runOcrFallback(traceContext)
+            if (ocrOffer != null) {
+                logParseSuccess(ocrOffer, attempt + 1, extraDetails = mapOf("ocr_fallback" to true))
+                StateEvent.OfferParsed(ocrOffer)
+            } else {
+                Log.e("UAA", "[PARSE] failed after retry=3")
+                RemoteLogger.logParseResult(
+                    success = false,
+                    offerData = null,
+                    error = "ViewId/텍스트 파싱 실패 (retry=3)",
+                    details = mapOf(
+                        "trace_id" to traceContext?.traceId,
+                        "error_code" to "PARSE_FAILED_AFTER_RETRY",
+                        "failure_stage" to "offer_detected_handler",
+                        "retry_count" to attempt
+                    )
                 )
+                StateEvent.ErrorOccurred("오퍼 파싱 실패")
+            }
+        }
+    }
+
+    private fun logParseSuccess(
+        offer: UberOffer,
+        parseAttempt: Int,
+        extraDetails: Map<String, Any?> = emptyMap()
+    ) {
+        Log.i(
+            "UAA",
+            "[PARSE] success (attempt=$parseAttempt) | pickup=${offer.pickupLocation} | dropoff=${offer.dropoffLocation} | parser=${offer.parserSource}"
+        )
+        RemoteLogger.logParseResult(
+            success = true,
+            offerData = ParsedOfferData(
+                offerUuid = offer.offerUuid,
+                traceId = offer.traceContext?.traceId,
+                pickup = offer.pickupLocation,
+                dropoff = offer.dropoffLocation,
+                customerDistance = offer.customerDistance,
+                tripDistance = offer.tripDistance,
+                parseConfidence = offer.parseConfidence.name,
+                acceptButtonFound = offer.acceptButtonNode != null,
+                parserSource = offer.parserSource,
+                pickupViewId = offer.pickupViewId,
+                dropoffViewId = offer.dropoffViewId,
+                pickupValidated = offer.pickupValidated,
+                dropoffValidated = offer.dropoffValidated
+            ),
+            error = null,
+            details = mapOf(
+                "trace_id" to offer.traceContext?.traceId,
+                "parser_source" to offer.parserSource,
+                "pickup_view_id" to offer.pickupViewId,
+                "dropoff_view_id" to offer.dropoffViewId,
+                "parse_attempt" to parseAttempt
+            ) + extraDetails
+        )
+    }
+
+    private suspend fun runOcrFallback(traceContext: OfferTraceContext?): UberOffer? {
+        val bitmap = screenshotProvider() ?: return null
+        return try {
+            val blocks = OcrOfferParser.recognize(bitmap, ocrScopeRectProvider())
+            val candidate = OcrOfferParser.findOfferCandidate(blocks) ?: return null
+            val offer = UberOffer(
+                offerUuid = traceContext?.traceId ?: java.util.UUID.randomUUID().toString(),
+                traceContext = traceContext,
+                pickupLocation = candidate.pickup,
+                dropoffLocation = candidate.dropoff,
+                customerDistance = com.uber.autoaccept.utils.DistanceParser.parsePickupEtaDistance(candidate.pickupEtaText),
+                tripDistance = 0.0,
+                estimatedFare = 0,
+                estimatedTime = com.uber.autoaccept.utils.DistanceParser.parseDuration(candidate.tripDurationText),
+                acceptButtonBounds = null,
+                acceptButtonNode = null,
+                parseConfidence = ParseConfidence.LOW,
+                parserSource = "ocr_fallback",
+                pickupViewId = "ocr_pickup",
+                dropoffViewId = "ocr_dropoff",
+                pickupValidated = true,
+                dropoffValidated = true
             )
-            StateEvent.ErrorOccurred("오퍼 파싱 실패")
+            Log.i(
+                "UAA",
+                "[PARSE][OCR][${traceContext?.traceId}] success blocks=${blocks.size} pickup=${candidate.pickup} dropoff=${candidate.dropoff}"
+            )
+            offer
+        } catch (e: Exception) {
+            Log.w("UAA", "[PARSE][OCR][${traceContext?.traceId}] failed: ${e.message}")
+            null
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
         }
     }
 }
