@@ -156,7 +156,9 @@ class AcceptingHandler : BaseStateHandler() {
             return StateEvent.ErrorOccurred("Invalid state")
         }
 
-        val target = targetClickPoint
+        val target = targetClickPoint ?: openCVButtonRect?.let {
+            android.graphics.PointF(it.exactCenterX(), it.exactCenterY())
+        }
         val svc = serviceRef
         val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
         RemoteLogger.logDiagnostic(

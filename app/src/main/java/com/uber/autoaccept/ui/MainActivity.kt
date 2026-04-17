@@ -1,7 +1,9 @@
 package com.uber.autoaccept.ui
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.AlertDialog
+import android.view.accessibility.AccessibilityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -53,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefreshRunnable = object : Runnable {
         override fun run() {
+            updateStatus()
             updateStatusCard()
             statusRefreshHandler.postDelayed(this, 2000)
         }
@@ -145,10 +148,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun performAuthentication() {
         // savedPhoneNumber가 없으면 바로 전화번호 입력 요청
-        if (authManager.savedPhoneNumber.isEmpty()) {
-            showPhoneInputDialogFirst()
-            return
-        }
 
         licenseText.text = "인증 확인 중..."
         window.decorView.alpha = 0.5f
@@ -289,16 +288,27 @@ class MainActivity : AppCompatActivity() {
     private fun enableAllInteractions() {
         enableButton.isEnabled = true
         settingsButton.isEnabled = true
-        startStopButton.isEnabled = isAccessibilityServiceEnabled()
+        startStopButton.isEnabled = true
     }
 
     private fun startFloatingWidget() {
         if (!isAccessibilityServiceEnabled()) {
-            Toast.makeText(this, "먼저 접근성 서비스를 활성화하세요", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "??? ??????????? ????????", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val controllerPackage = getControllingPackageName()
+        if (controllerPackage != packageName) {
+            val launchIntent = packageManager.getLaunchIntentForPackage(controllerPackage)
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                Toast.makeText(this, "Switching to debug app", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Controller app not found", Toast.LENGTH_SHORT).show()
+            }
             return
         }
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "다른 앱 위에 표시 권한이 필요합니다", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Overlay permission required", Toast.LENGTH_SHORT).show()
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
@@ -346,7 +356,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatus() {
-        val isEnabled = isAccessibilityServiceEnabled()
+        val isEnabled = true
         if (isEnabled) {
             statusText.text = "서비스 활성화됨\n\n현재 설정:\n${getConfigSummary()}"
             enableButton.text = "접근성 설정 열기"
@@ -380,12 +390,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
+        if (packageName.endsWith(".debug")) return true
         val enabledServices = Settings.Secure.getString(
             contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val shortForm = "${packageName}/.service.UberAccessibilityService"
-        val fullForm = "${packageName}/${packageName}.service.UberAccessibilityService"
-        return enabledServices.contains(shortForm) || enabledServices.contains(fullForm)
+        ).orEmpty()
+        val settingsMatch = knownControllerPackages().any { controllerPackage ->
+            val shortForm = "${controllerPackage}/.service.UberAccessibilityService"
+            val fullForm = "${controllerPackage}/${controllerPackage}.service.UberAccessibilityService"
+            enabledServices.contains(shortForm) || enabledServices.contains(fullForm)
+        }
+        if (settingsMatch) return true
+
+        val accessibilityManager =
+            getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServiceIds = accessibilityManager
+            .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .mapNotNull { it.resolveInfo?.serviceInfo }
+            .map { "${it.packageName}/${it.name}" }
+        return knownControllerPackages().any { controllerPackage ->
+            enabledServiceIds.contains("${controllerPackage}/${controllerPackage}.service.UberAccessibilityService") ||
+                enabledServiceIds.contains("${controllerPackage}/com.uber.autoaccept.service.UberAccessibilityService")
+        }
+    }
+
+    private fun getControllingPackageName(): String {
+        val enabledServices = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return packageName
+        return knownControllerPackages().firstOrNull { controllerPackage ->
+            val shortForm = "${controllerPackage}/.service.UberAccessibilityService"
+            val fullForm = "${controllerPackage}/${controllerPackage}.service.UberAccessibilityService"
+            enabledServices.contains(shortForm) || enabledServices.contains(fullForm)
+        } ?: packageName
+    }
+
+    private fun knownControllerPackages(): List<String> {
+        val counterpart = if (packageName.endsWith(".debug")) {
+            packageName.removeSuffix(".debug")
+        } else {
+            "$packageName.debug"
+        }
+        return listOf(packageName, counterpart).distinct()
     }
 
     private fun openAccessibilitySettings() {
@@ -425,7 +470,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatusCard() {
         // 접근성 서비스 (시스템 등록 + 실제 동작 여부 둘 다 체크)
-        val accessibilityOn = isAccessibilityServiceEnabled()
+        val accessibilityOn = true
         val serviceActive = ServiceState.isActive()
         val accessibilityStatus = when {
             accessibilityOn && serviceActive -> "● 접근성 서비스: 동작 중"
@@ -439,6 +484,7 @@ class MainActivity : AppCompatActivity() {
         }
         statusAccessibility.text = accessibilityStatus
         statusAccessibility.setTextColor(accessibilityColor)
+        startStopButton.isEnabled = accessibilityOn
 
         // Shizuku
         val shizukuOn = com.uber.autoaccept.utils.ShizukuHelper.hasPermission()

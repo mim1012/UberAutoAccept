@@ -38,23 +38,28 @@ $apkPath = Resolve-Path "app/build/outputs/apk/debug/app-debug.apk"
 Write-Host "[3/5] install debug apk: $apkPath"
 Invoke-Adb @('install', '-r', $apkPath)
 
-Write-Host "[4/5] clear logcat + launch debug app + capture current UI dump"
+Write-Host "[4/5] clear logcat + enable debug accessibility service + open Uber Driver + capture current UI dump"
 Invoke-Adb @('logcat', '-c')
+$enabledServices = 'com.uber.autoaccept.debug/com.uber.autoaccept.service.UberAccessibilityService:com.teamviewer.quicksupport.addon.universal/com.teamviewer.quicksupport.addon.universal.TvAccessibilityService'
+Invoke-Adb @('shell', 'settings', 'delete', 'secure', 'enabled_accessibility_services')
+Invoke-Adb @('shell', 'settings', 'put', 'secure', 'enabled_accessibility_services', $enabledServices)
+Invoke-Adb @('shell', 'settings', 'put', 'secure', 'accessibility_enabled', '1')
+Invoke-Adb @('shell', 'am', 'force-stop', 'com.uber.autoaccept')
 Invoke-Adb @('shell', 'am', 'start', '-n', 'com.uber.autoaccept.debug/com.uber.autoaccept.ui.MainActivity')
 Start-Sleep -Seconds 2
+Invoke-Adb @('shell', 'am', 'start', '-n', 'com.ubercab.driver/com.ubercab.carbon.core.CarbonActivity')
+Start-Sleep -Seconds 3
 New-Item -ItemType Directory -Force '.android-user' | Out-Null
 $remoteDump = '/sdcard/uaa-live.xml'
 Invoke-Adb @('shell', 'uiautomator', 'dump', $remoteDump)
 Invoke-Adb @('pull', $remoteDump, '.android-user/uaa-live.xml')
 
-[xml]$xml = Get-Content -Raw '.android-user/uaa-live.xml'
+$xmlRaw = Get-Content -Raw '.android-user/uaa-live.xml'
 $tokens = @('offer', 'dispatch', 'pickup', 'dropoff', 'accept', 'upfront', 'pulse')
-$resourceIds = @(
-    Select-Xml -Xml $xml -XPath '//node[@resource-id]' |
-        ForEach-Object { $_.Node.'resource-id' } |
-        Where-Object { $_ } |
-        ForEach-Object { ($_ -split ':id/')[-1] }
-)
+$resourceIds = [regex]::Matches($xmlRaw, 'resource-id="([^"]*)"') |
+    ForEach-Object { $_.Groups[1].Value } |
+    Where-Object { $_ } |
+    ForEach-Object { ($_ -split ':id/')[-1] }
 $matchingIds = $resourceIds |
     Where-Object { $id = $_; $tokens | Where-Object { $id -like "*$_*" } } |
     Sort-Object -Unique

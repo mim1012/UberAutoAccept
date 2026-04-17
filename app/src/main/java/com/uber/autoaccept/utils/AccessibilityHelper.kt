@@ -11,13 +11,37 @@ private data class OfferDebugSnapshot(
     val topIds: List<String>,
     val topClasses: List<String>,
     val addressCandidates: List<String>,
-    val acceptCandidates: List<String>
+    val acceptCandidates: List<String>,
+    val textSignals: List<String>
 ) {
     fun toLogLine(): String {
         fun List<String>.orDash(): String = if (isEmpty()) "-" else joinToString(",")
-        return "markers=${markerIds.orDash()} offerish=${offerishIds.orDash()} topIds=${topIds.orDash()} classes=${topClasses.orDash()} addrs=${addressCandidates.orDash()} btns=${acceptCandidates.orDash()}"
+        return "markers=${markerIds.orDash()} offerish=${offerishIds.orDash()} topIds=${topIds.orDash()} classes=${topClasses.orDash()} addrs=${addressCandidates.orDash()} btns=${acceptCandidates.orDash()} texts=${textSignals.orDash()}"
     }
 }
+
+data class OfferTextCluster(
+    val isLikelyOffer: Boolean,
+    val reason: String,
+    val titleText: String? = null,
+    val tripDurationText: String? = null,
+    val pickupEtaText: String? = null,
+    val pickupAddress: String? = null,
+    val dropoffAddress: String? = null,
+    val directionText: String? = null,
+    val acceptText: String? = null,
+    val addressCandidates: List<String> = emptyList(),
+    val blacklistTextHit: String? = null
+)
+
+data class OfferContentSignal(
+    val isStructuredOffer: Boolean,
+    val reason: String,
+    val textCluster: OfferTextCluster,
+    val hasPickupDropoffContent: Boolean,
+    val hasTimeContent: Boolean,
+    val hasAcceptContent: Boolean
+)
 
 object AccessibilityHelper {
     private const val TAG = "AccessibilityHelper"
@@ -36,6 +60,15 @@ object AccessibilityHelper {
     private val ADDRESS_TERMS = listOf("\uC2DC", "\uAD6C", "\uB3D9", "\uB85C", "\uAE38", "\uC5ED", "\uD130\uBBF8\uB110")
     private val ACCEPT_TERMS = listOf("\uCF5C \uC218\uB77D", "\uC218\uB77D", "\uD655\uC778", "accept")
     private val OFFERISH_ID_TOKENS = listOf("offer", "dispatch", "pickup", "dropoff", "accept", "upfront", "pulse", "fare", "map")
+    private val OFFER_TITLE_TERMS = listOf("\uAC00\uB9F9 \uC804\uC6A9 \uCF5C", "\uC77C\uBC18 \uCF5C", "XL")
+    private val NON_OFFER_TEXTS = listOf(
+        "\uC6B4\uD589 \uB9AC\uC2A4\uD2B8",
+        "\uC9C0\uAE08\uC740 \uC694\uCCAD\uC774 \uC5C6\uC2B5\uB2C8\uB2E4",
+        "\uB354 \uB9CE\uC740 \uC694\uCCAD\uC774 \uB4E4\uC5B4\uC624\uBA74 \uC54C\uB824\uB4DC\uB9AC\uACA0\uC2B5\uB2C8\uB2E4."
+    )
+    private val TRIP_DURATION_REGEX = Regex("""(?:\d+\s*\uC2DC\uAC04\s*)?\d+\s*\uBD84\s*\uC6B4\uD589""")
+    private val PICKUP_ETA_REGEX = Regex("""\d+\s*\uBD84\s*\([\d.]+\s*km\)\s*\uB0A8\uC74C""")
+    private val DIRECTION_REGEX = Regex("""[\uB3D9\uC11C\uB0A8\uBD81]{1,2}\uCABD""")
 
     fun collectResourceIds(root: AccessibilityNodeInfo?): Map<String, Int> {
         if (root == null) return emptyMap()
@@ -153,6 +186,157 @@ object AccessibilityHelper {
         return result
     }
 
+    fun extractOrderedTexts(root: AccessibilityNodeInfo?): List<String> {
+        if (root == null) return emptyList()
+        val result = mutableListOf<String>()
+
+        fun walk(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            try {
+                val text = node.text?.toString()?.trim().orEmpty()
+                if (text.isNotBlank()) result.add(text)
+                val desc = node.contentDescription?.toString()?.trim().orEmpty()
+                if (desc.isNotBlank() && desc != text) result.add(desc)
+                for (i in 0 until node.childCount) {
+                    walk(node.getChild(i))
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        walk(root)
+        return result
+    }
+
+    fun summarizeOfferTexts(
+        texts: List<String>,
+        resourceIds: Collection<String> = emptyList()
+    ): OfferTextCluster {
+        if (texts.isEmpty()) {
+            return OfferTextCluster(false, "no_text_content")
+        }
+
+        val normalizedTexts = texts.map { it.trim() }.filter { it.isNotBlank() }
+        val blacklistHit = normalizedTexts.firstOrNull { text ->
+            NON_OFFER_TEXTS.any { text.contains(it, ignoreCase = true) }
+        }
+        if (blacklistHit != null) {
+            return OfferTextCluster(
+                isLikelyOffer = false,
+                reason = "blacklist_text_present",
+                blacklistTextHit = blacklistHit
+            )
+        }
+
+        val titleText = normalizedTexts.firstOrNull { text ->
+            OFFER_TITLE_TERMS.any { term -> text.contains(term, ignoreCase = true) }
+        }
+        val tripDurationText = normalizedTexts.firstOrNull { TRIP_DURATION_REGEX.containsMatchIn(it) }
+        val pickupEtaText = normalizedTexts.firstOrNull { PICKUP_ETA_REGEX.containsMatchIn(it) }
+        val acceptText = normalizedTexts.firstOrNull { text ->
+            ACCEPT_TERMS.any { term -> text.contains(term, ignoreCase = true) }
+        }
+        val addressCandidates = normalizedTexts.filter(::looksLikeAddressText)
+        val directionText = normalizedTexts.firstOrNull {
+            DIRECTION_REGEX.matches(it) || it.endsWith("\uCABD")
+        }
+
+        val hasOfferishMapStructure = resourceIds.any { id ->
+            id.startsWith("map_marker") || id == "rxmap" || id == "map"
+        }
+        val looksLikeOffer = acceptText != null &&
+            tripDurationText != null &&
+            pickupEtaText != null &&
+            addressCandidates.size >= 2 &&
+            hasOfferishMapStructure
+
+        return OfferTextCluster(
+            isLikelyOffer = looksLikeOffer,
+            reason = if (looksLikeOffer) {
+                "accept_trip_eta_and_two_addresses"
+            } else {
+                "missing_offer_text_cluster"
+            },
+            titleText = titleText,
+            tripDurationText = tripDurationText,
+            pickupEtaText = pickupEtaText,
+            pickupAddress = addressCandidates.getOrNull(0),
+            dropoffAddress = addressCandidates.getOrNull(1),
+            directionText = directionText,
+            acceptText = acceptText,
+            addressCandidates = addressCandidates
+        )
+    }
+
+    fun inspectOfferContent(root: AccessibilityNodeInfo?): OfferContentSignal {
+        if (root == null) {
+            return OfferContentSignal(
+                isStructuredOffer = false,
+                reason = "no_root",
+                textCluster = OfferTextCluster(false, "no_root"),
+                hasPickupDropoffContent = false,
+                hasTimeContent = false,
+                hasAcceptContent = false
+            )
+        }
+
+        val resourceIds = collectResourceIds(root).keys
+        val texts = extractOrderedTexts(root)
+        val textCluster = summarizeOfferTexts(texts, resourceIds)
+
+        val pickupText = findNodeByViewId(root, "uda_details_pickup_address_text_view")?.text?.toString()
+            ?: findNodeByViewId(root, "pick_up_address")?.text?.toString()
+        val dropoffText = findNodeByViewId(root, "uda_details_dropoff_address_text_view")?.text?.toString()
+            ?: findNodeByViewId(root, "drop_off_address")?.text?.toString()
+        val hasPickupDropoffContent =
+            (looksLikeAddressText(pickupText) && looksLikeAddressText(dropoffText)) ||
+                textCluster.addressCandidates.size >= 2
+
+        val durationText = findNodeByViewId(root, "uda_details_duration_text_view")?.text?.toString()
+            ?: textCluster.tripDurationText
+        val etaText = textCluster.pickupEtaText
+            ?: texts.firstOrNull { PICKUP_ETA_REGEX.containsMatchIn(it) }
+        val hasTimeContent = !durationText.isNullOrBlank() && !etaText.isNullOrBlank()
+
+        val acceptViewIds = listOf(
+            "uda_details_accept_button",
+            "upfront_offer_configurable_details_accept_button",
+            "upfront_offer_configurable_details_auditable_accept_button"
+        )
+        val hasAcceptView = acceptViewIds.any { findNodeByViewId(root, it) != null }
+        val hasAcceptText = textCluster.acceptText != null || texts.any { text ->
+            ACCEPT_TERMS.any { term -> text.contains(term, ignoreCase = true) }
+        }
+        val hasAcceptContent = hasAcceptView || hasAcceptText
+
+        val isStructuredOffer =
+            textCluster.isLikelyOffer || (hasPickupDropoffContent && hasTimeContent && hasAcceptContent)
+        val reason = when {
+            textCluster.isLikelyOffer -> textCluster.reason
+            isStructuredOffer -> "address_time_accept_visible"
+            textCluster.blacklistTextHit != null -> "blacklist_text_present"
+            else -> "missing_structured_offer_content"
+        }
+
+        return OfferContentSignal(
+            isStructuredOffer = isStructuredOffer,
+            reason = reason,
+            textCluster = textCluster,
+            hasPickupDropoffContent = hasPickupDropoffContent,
+            hasTimeContent = hasTimeContent,
+            hasAcceptContent = hasAcceptContent
+        )
+    }
+
+    fun looksLikeAddressText(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        val candidate = text.trim()
+        if (candidate.length < 8) return false
+        if (candidate.endsWith("\uCABD")) return false
+        val termHits = ADDRESS_TERMS.count { candidate.contains(it) }
+        return termHits >= 2 || candidate.contains(",")
+    }
+
     fun buildOfferDebugLine(root: AccessibilityNodeInfo?): String {
         if (root == null) return "markers=- offerish=- topIds=- classes=- addrs=- btns=-"
 
@@ -176,6 +360,19 @@ object AccessibilityHelper {
         val acceptCandidates = findAcceptButtonCandidates(root, 6).map { (rid, cls, summary) ->
             "${rid.ifBlank { "no_id" }}|${cls.substringAfterLast('.')}|$summary"
         }
+        val textCluster = summarizeOfferTexts(extractOrderedTexts(root), resourceCounts.keys)
+        val textSignals = buildList {
+            textCluster.titleText?.let { add("title=$it") }
+            textCluster.tripDurationText?.let { add("trip=$it") }
+            textCluster.pickupEtaText?.let { add("eta=$it") }
+            textCluster.pickupAddress?.let { add("pickup=$it") }
+            textCluster.dropoffAddress?.let { add("dropoff=$it") }
+            textCluster.acceptText?.let { add("accept=$it") }
+            if (textCluster.blacklistTextHit != null) {
+                add("blacklist=${textCluster.blacklistTextHit}")
+            }
+            add("offer=${textCluster.isLikelyOffer}")
+        }
 
         return OfferDebugSnapshot(
             markerIds = markerIds,
@@ -183,7 +380,8 @@ object AccessibilityHelper {
             topIds = topIds,
             topClasses = topClasses,
             addressCandidates = addressCandidates,
-            acceptCandidates = acceptCandidates
+            acceptCandidates = acceptCandidates,
+            textSignals = textSignals
         ).toLogLine()
     }
 

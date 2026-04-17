@@ -6,6 +6,7 @@ import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.OfferTraceContext
 import com.uber.autoaccept.model.ParseConfidence
 import com.uber.autoaccept.model.UberOffer
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
 class UberOfferParser {
@@ -20,6 +21,11 @@ class UberOfferParser {
             "leg_dropoff",
             "leg_dropoff_label"
         )
+        private val prefetchedOffers = ConcurrentHashMap<String, UberOffer>()
+
+        fun cachePrefetchedOffer(offer: UberOffer) {
+            offer.traceContext?.traceId?.let { prefetchedOffers[it] = offer }
+        }
     }
 
     private data class AddressMatch(
@@ -45,6 +51,16 @@ class UberOfferParser {
         existingTraceContext: OfferTraceContext?
     ): UberOffer? {
         try {
+            existingTraceContext?.traceId?.let { traceId ->
+                prefetchedOffers.remove(traceId)?.let { cachedOffer ->
+                    Log.i(
+                        OFFER_LOGCAT_TAG,
+                        "[trace=$traceId] parse_success parser=${cachedOffer.parserSource ?: "prefetched"} prefetched=true"
+                    )
+                    return cachedOffer
+                }
+            }
+
             val addressMatch = findAddresses(rootNode) ?: run {
                 logParseFailure(rootNode, existingTraceContext)
                 return null
@@ -54,6 +70,10 @@ class UberOfferParser {
                 ?.text?.toString()
             val durationText = AccessibilityHelper.findNodeByViewId(rootNode, "uda_details_duration_text_view")
                 ?.text?.toString()
+                ?: AccessibilityHelper.summarizeOfferTexts(
+                    AccessibilityHelper.extractOrderedTexts(rootNode),
+                    AccessibilityHelper.collectResourceIds(rootNode).keys
+                ).tripDurationText
 
             val tripDistance = DistanceParser.parseDistance(tripDistanceText)
             val estimatedTime = DistanceParser.parseDuration(durationText)
@@ -247,6 +267,26 @@ class UberOfferParser {
             }
         }
 
+        val textCluster = AccessibilityHelper.summarizeOfferTexts(
+            AccessibilityHelper.extractOrderedTexts(rootNode),
+            AccessibilityHelper.collectResourceIds(rootNode).keys
+        )
+        if (textCluster.isLikelyOffer &&
+            looksLikeAddress(textCluster.pickupAddress) &&
+            looksLikeAddress(textCluster.dropoffAddress)
+        ) {
+            return AddressMatch(
+                pickup = textCluster.pickupAddress!!,
+                dropoff = textCluster.dropoffAddress!!,
+                confidence = ParseConfidence.MEDIUM,
+                parserSource = "text_cluster",
+                pickupViewId = "text_cluster_pickup",
+                dropoffViewId = "text_cluster_dropoff",
+                pickupValidated = true,
+                dropoffValidated = true
+            )
+        }
+
         return null
     }
 
@@ -298,6 +338,17 @@ class UberOfferParser {
         for (viewId in viewIds) {
             val button = AccessibilityHelper.findNodeByViewId(rootNode, viewId)
             if (button != null) return button
+        }
+
+        val orderedTexts = AccessibilityHelper.extractOrderedTexts(rootNode)
+        val acceptText = orderedTexts.firstOrNull { text ->
+            ACCEPT_TEXTS.any { term -> text.contains(term, ignoreCase = true) }
+        }
+        if (acceptText != null) {
+            for (term in ACCEPT_TEXTS) {
+                val candidate = AccessibilityHelper.findNodeByText(rootNode, term)
+                if (candidate != null) return candidate
+            }
         }
 
         return null

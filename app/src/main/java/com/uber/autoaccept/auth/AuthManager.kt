@@ -15,23 +15,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Vortex 패턴 인증 관리자.
- * 전화번호(우선) 또는 ANDROID_ID(폴백)로 Supabase check_license RPC 호출.
- * 24시간 캐시, 네트워크 오류 시 캐시 허용.
+ * Auth is tied to the SIM phone number only.
+ * Manual input and ANDROID_ID fallback are intentionally disabled.
  */
 class AuthManager private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "AuthManager"
         private const val PREFS_NAME = "twinme_auth"
-        private const val KEY_PHONE_NUMBER = "phone_number"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_USER_TYPE = "user_type"
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_LAST_AUTH_TIME = "last_auth_time"
         private const val KEY_IS_AUTHORIZED = "is_authorized"
 
-        private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L // 24시간
+        private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L
 
         @Volatile
         private var instance: AuthManager? = null
@@ -43,7 +41,8 @@ class AuthManager private constructor(private val context: Context) {
         }
     }
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var isAuthorized: Boolean
         get() = prefs.getBoolean(KEY_IS_AUTHORIZED, false)
@@ -57,9 +56,12 @@ class AuthManager private constructor(private val context: Context) {
         get() = prefs.getString(KEY_EXPIRES_AT, "") ?: ""
         private set(value) = prefs.edit().putString(KEY_EXPIRES_AT, value).apply()
 
+    @Deprecated("SIM-only auth; manual phone entry is ignored.")
     var savedPhoneNumber: String
-        get() = prefs.getString(KEY_PHONE_NUMBER, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_PHONE_NUMBER, value).apply()
+        get() = "__sim_only__"
+        set(@Suppress("UNUSED_PARAMETER") value) {
+            Log.w(TAG, "manual phone number input ignored; SIM auth only")
+        }
 
     private var lastAuthTime: Long
         get() = prefs.getLong(KEY_LAST_AUTH_TIME, 0)
@@ -72,27 +74,25 @@ class AuthManager private constructor(private val context: Context) {
 
     @Synchronized
     fun clearCache() {
-        Log.d(TAG, "인증 캐시 무효화")
+        Log.d(TAG, "auth cache cleared")
         isAuthorized = false
         lastAuthTime = 0
     }
 
-    /** 전화번호 읽기 (권한 있을 때만, 없으면 null) */
     @SuppressLint("HardwareIds")
     fun getPhoneNumber(): String? {
-        if (savedPhoneNumber.isNotEmpty()) return savedPhoneNumber
         if (!hasPhonePermission()) return null
         return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            val num = tm.line1Number
-            if (!num.isNullOrEmpty()) normalizePhone(num) else null
+            val telephonyManager =
+                context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            val number = telephonyManager.line1Number
+            if (!number.isNullOrBlank()) normalizePhone(number) else null
         } catch (e: Exception) {
-            Log.w(TAG, "전화번호 추출 실패: ${e.message}")
+            Log.w(TAG, "failed to read SIM phone number: ${e.message}")
             null
         }
     }
 
-    /** 기기 고유 ID (ANDROID_ID 기반, SharedPreferences 캐시) */
     @SuppressLint("HardwareIds")
     fun getDeviceId(): String {
         val cached = prefs.getString(KEY_DEVICE_ID, null)
@@ -103,51 +103,59 @@ class AuthManager private constructor(private val context: Context) {
     }
 
     fun hasPhonePermission(): Boolean {
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) ==
+        val readPhoneStateGranted =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) ==
                 PackageManager.PERMISSION_GRANTED
+        val readPhoneNumbersGranted =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_NUMBERS) ==
+                PackageManager.PERMISSION_GRANTED
+        return readPhoneStateGranted || readPhoneNumbersGranted
     }
 
-    /**
-     * 인증 수행. 캐시가 유효하면 즉시 성공 반환.
-     * 네트워크 오류 시 이전 캐시 허용.
-     */
     @Synchronized
     fun authenticate(callback: AuthCallback) {
         if (isCacheValid()) {
-            Log.d(TAG, "캐시된 인증 사용")
-            callback.onSuccess(AuthResult(true, userType, expiresAt, "캐시 사용"))
+            Log.d(TAG, "using cached auth result")
+            callback.onSuccess(AuthResult(true, userType, expiresAt, "cached auth"))
             return
         }
 
-        val identifier = getPhoneNumber() ?: getDeviceId()
-        val isPhone = getPhoneNumber() != null
-        Log.d(TAG, "인증 시도: ${if (isPhone) "전화번호" else "기기ID"} = $identifier")
+        val phoneNumber = getPhoneNumber()
+        if (phoneNumber.isNullOrBlank()) {
+            isAuthorized = false
+            callback.onFailure("SIM 전화번호를 읽을 수 없습니다. 등록된 유심 번호로만 인증됩니다.")
+            return
+        }
+
+        Log.d(TAG, "auth via SIM phone number = $phoneNumber")
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = SupabaseClient.rpcPost("check_license", mapOf("p_identifier" to identifier))
+                val response =
+                    SupabaseClient.rpcPost("check_license", mapOf("p_identifier" to phoneNumber))
                 val authorized = response["authorized"] as? Boolean ?: false
                 val message = response["message"] as? String ?: ""
-                val resUserType = response["user_type"] as? String ?: "basic"
-                val resExpiresAt = response["expires_at"] as? String ?: ""
+                val responseUserType = response["user_type"] as? String ?: "basic"
+                val responseExpiresAt = response["expires_at"] as? String ?: ""
 
                 if (authorized) {
                     isAuthorized = true
-                    userType = resUserType
-                    expiresAt = resExpiresAt
+                    userType = responseUserType
+                    expiresAt = responseExpiresAt
                     lastAuthTime = System.currentTimeMillis()
-                    callback.onSuccess(AuthResult(true, resUserType, resExpiresAt, message))
+                    callback.onSuccess(
+                        AuthResult(true, responseUserType, responseExpiresAt, message)
+                    )
                 } else {
                     isAuthorized = false
-                    callback.onFailure(message.ifEmpty { "인증 실패" })
+                    callback.onFailure(message.ifEmpty { "등록된 SIM 번호가 아닙니다." })
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "인증 오류: ${e.message}")
+                Log.e(TAG, "auth failed: ${e.message}")
                 if (isAuthorized && lastAuthTime > 0) {
-                    // 네트워크 오류이고 이전 인증 기록이 있으면 허용
-                    callback.onSuccess(AuthResult(true, userType, expiresAt, "오프라인 캐시"))
+                    callback.onSuccess(AuthResult(true, userType, expiresAt, "offline cache"))
                 } else {
-                    callback.onFailure("네트워크 연결 실패: ${e.message}")
+                    callback.onFailure("인증 서버 연결 실패: ${e.message}")
                 }
             }
         }
@@ -163,9 +171,11 @@ class AuthManager private constructor(private val context: Context) {
     }
 
     private fun normalizePhone(phone: String): String {
-        var n = phone.replace(Regex("[^0-9]"), "")
-        if (n.startsWith("82")) n = "0${n.substring(2)}"
-        return n
+        var normalized = phone.replace(Regex("[^0-9]"), "")
+        if (normalized.startsWith("82")) {
+            normalized = "0${normalized.substring(2)}"
+        }
+        return normalized
     }
 
     data class AuthResult(

@@ -4,15 +4,12 @@ object UberOfferGate {
     const val UBER_DRIVER_PACKAGE = "com.ubercab.driver"
 
     private val WINDOW_STATE_CLASSES = setOf(
-        "android.widget.FrameLayout",
-        "android.widget.LinearLayout",
         "com.ubercab.dispatch.DispatchView",
         "com.ubercab.carbon.core.dispatch.BasicDispatchView",
         "com.uber.upfront_driver_assignment_offer_card.UpfrontOfferViewV2View"
     )
 
     val CONFIRMATION_VIEW_IDS = setOf(
-        "primary_touch_area",
         "ub__upfront_offer_view_v2",
         "pulse_view"
     )
