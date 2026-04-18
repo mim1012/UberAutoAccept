@@ -84,7 +84,7 @@ class OfferDetectedHandler(
                 customerDistance = offer.customerDistance,
                 tripDistance = offer.tripDistance,
                 parseConfidence = offer.parseConfidence.name,
-                acceptButtonFound = offer.acceptButtonNode != null,
+                acceptButtonFound = offer.acceptButtonNode != null || offer.acceptButtonBounds != null,
                 parserSource = offer.parserSource,
                 pickupViewId = offer.pickupViewId,
                 dropoffViewId = offer.dropoffViewId,
@@ -97,7 +97,10 @@ class OfferDetectedHandler(
                 "parser_source" to offer.parserSource,
                 "pickup_view_id" to offer.pickupViewId,
                 "dropoff_view_id" to offer.dropoffViewId,
-                "parse_attempt" to parseAttempt
+                "parse_attempt" to parseAttempt,
+                "snapshot_fast_path" to (offer.snapshot != null),
+                "snapshot_reason" to offer.snapshot?.reason,
+                "snapshot_nodes" to offer.snapshot?.nodes?.size
             ) + extraDetails
         )
     }
@@ -213,9 +216,13 @@ class AcceptingHandler : BaseStateHandler() {
             return StateEvent.ErrorOccurred("Invalid state")
         }
 
-        val target = targetClickPoint ?: openCVButtonRect?.let {
-            android.graphics.PointF(it.exactCenterX(), it.exactCenterY())
-        }
+        val target = targetClickPoint
+            ?: state.offer.acceptButtonBounds?.let {
+                android.graphics.PointF(it.exactCenterX(), it.exactCenterY())
+            }
+            ?: openCVButtonRect?.let {
+                android.graphics.PointF(it.exactCenterX(), it.exactCenterY())
+            }
         val svc = serviceRef
         val searchRoots = allWindowRoots.ifEmpty { listOfNotNull(rootNode) }
         RemoteLogger.logDiagnostic(

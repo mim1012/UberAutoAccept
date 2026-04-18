@@ -32,7 +32,47 @@ data class OfferTraceContext(
     val traceId: String,
     val detectedAtMs: Long = System.currentTimeMillis(),
     val detectionSource: String? = null,
-    val detectionStage: String? = null
+    val detectionStage: String? = null,
+    val snapshotSource: String? = null,
+    val snapshotIndex: Int? = null,
+    val snapshotNodeCount: Int? = null,
+    val snapshotCandidateCount: Int? = null,
+    val appVersion: String? = null,
+    val gitTag: String? = null
+)
+
+data class SnapshotNode(
+    val viewId: String? = null,
+    val className: String? = null,
+    val text: String? = null,
+    val contentDescription: String? = null,
+    val bounds: Rect? = null,
+    val clickable: Boolean = false
+)
+
+data class OfferSnapshot(
+    val capturedAtMs: Long,
+    val source: String,
+    val sampleIndex: Int,
+    val packageName: String,
+    val rootClassName: String?,
+    val rootCount: Int,
+    val nodes: List<SnapshotNode>,
+    val orderedTexts: List<String>,
+    val virtualAddressCandidates: List<String>,
+    val resourceIdCounts: Map<String, Int>,
+    val strongMarkers: Set<String>,
+    val addressCandidates: List<SnapshotNode>,
+    val acceptButtonCandidates: List<SnapshotNode>,
+    val hasPickupDropoffContent: Boolean,
+    val hasTimeContent: Boolean,
+    val hasAcceptContent: Boolean,
+    val reason: String,
+    val pickupAddress: String? = null,
+    val dropoffAddress: String? = null,
+    val tripDurationText: String? = null,
+    val pickupEtaText: String? = null,
+    val textDigest: String = ""
 )
 
 data class UberOffer(
@@ -52,7 +92,8 @@ data class UberOffer(
     val dropoffViewId: String? = null,
     val pickupValidated: Boolean = false,
     val dropoffValidated: Boolean = false,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val snapshot: OfferSnapshot? = null
 )
 
 enum class ParseConfidence {

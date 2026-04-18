@@ -3,6 +3,8 @@ package com.uber.autoaccept.utils
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.uber.autoaccept.logging.RemoteLogger
+import android.graphics.Rect
+import com.uber.autoaccept.model.OfferSnapshot
 import com.uber.autoaccept.model.OfferTraceContext
 import com.uber.autoaccept.model.ParseConfidence
 import com.uber.autoaccept.model.UberOffer
@@ -25,6 +27,70 @@ class UberOfferParser {
 
         fun cachePrefetchedOffer(offer: UberOffer) {
             offer.traceContext?.traceId?.let { prefetchedOffers[it] = offer }
+        }
+
+        fun cacheSnapshotOffer(snapshot: OfferSnapshot, traceContext: OfferTraceContext) {
+            buildPrefetchedOfferFromSnapshot(snapshot, traceContext)?.let { offer ->
+                prefetchedOffers[traceContext.traceId] = offer
+            }
+        }
+
+        private fun buildPrefetchedOfferFromSnapshot(
+            snapshot: OfferSnapshot,
+            traceContext: OfferTraceContext
+        ): UberOffer? {
+            val pickup = snapshot.pickupAddress
+                ?: AccessibilityHelper.selectAddressCandidates(
+                    snapshot.orderedTexts,
+                    snapshot.virtualAddressCandidates
+                ).getOrNull(0)
+            val dropoff = snapshot.dropoffAddress
+                ?: AccessibilityHelper.selectAddressCandidates(
+                    snapshot.orderedTexts,
+                    snapshot.virtualAddressCandidates
+                ).getOrNull(1)
+
+            if (!AccessibilityHelper.looksLikeAddressText(pickup) ||
+                !AccessibilityHelper.looksLikeAddressText(dropoff)
+            ) {
+                return null
+            }
+
+            val confidence = when {
+                snapshot.strongMarkers.isNotEmpty() && snapshot.hasPickupDropoffContent -> ParseConfidence.HIGH
+                snapshot.hasPickupDropoffContent && snapshot.hasAcceptContent -> ParseConfidence.MEDIUM
+                else -> ParseConfidence.LOW
+            }
+
+            val pickupNode = snapshot.addressCandidates.firstOrNull { candidate ->
+                candidate.text == pickup || candidate.contentDescription == pickup
+            }
+            val dropoffNode = snapshot.addressCandidates.firstOrNull { candidate ->
+                candidate.text == dropoff || candidate.contentDescription == dropoff
+            }
+            val acceptCandidate = snapshot.acceptButtonCandidates.firstOrNull()
+            val customerDistance = DistanceParser.parsePickupEtaDistance(snapshot.pickupEtaText)
+            val estimatedTime = DistanceParser.parseDuration(snapshot.tripDurationText)
+
+            return UberOffer(
+                offerUuid = traceContext.traceId,
+                traceContext = traceContext,
+                pickupLocation = pickup!!,
+                dropoffLocation = dropoff!!,
+                customerDistance = if (customerDistance > 0) customerDistance else 2.0,
+                tripDistance = 0.0,
+                estimatedFare = 0,
+                estimatedTime = estimatedTime,
+                acceptButtonBounds = acceptCandidate?.bounds,
+                acceptButtonNode = null,
+                parseConfidence = confidence,
+                parserSource = "snapshot_prefetch",
+                pickupViewId = pickupNode?.viewId ?: "snapshot_pickup",
+                dropoffViewId = dropoffNode?.viewId ?: "snapshot_dropoff",
+                pickupValidated = true,
+                dropoffValidated = true,
+                snapshot = snapshot
+            )
         }
     }
 
@@ -53,9 +119,10 @@ class UberOfferParser {
         try {
             existingTraceContext?.traceId?.let { traceId ->
                 prefetchedOffers.remove(traceId)?.let { cachedOffer ->
+                    val snapshotAgeMs = cachedOffer.snapshot?.let { System.currentTimeMillis() - it.capturedAtMs }
                     Log.i(
                         OFFER_LOGCAT_TAG,
-                        "[trace=$traceId] parse_success parser=${cachedOffer.parserSource ?: "prefetched"} prefetched=true"
+                        "[trace=$traceId] parse_success parser=${cachedOffer.parserSource ?: "prefetched"} prefetched=true snapshotAgeMs=${snapshotAgeMs ?: -1}"
                     )
                     return cachedOffer
                 }

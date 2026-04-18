@@ -14,6 +14,7 @@ import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.state.*
 import com.uber.autoaccept.utils.OfferCardDetector
+import com.uber.autoaccept.utils.OfferSnapshotBuilder
 import com.uber.autoaccept.utils.ScreenshotManager
 import com.uber.autoaccept.utils.UberOfferGate
 import com.uber.autoaccept.utils.UberOfferParser
@@ -145,10 +146,15 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun newOfferTraceContext(source: String, stage: String): OfferTraceContext {
+        val versionName = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull()
         return OfferTraceContext(
             traceId = UUID.randomUUID().toString(),
             detectionSource = source,
-            detectionStage = stage
+            detectionStage = stage,
+            appVersion = versionName,
+            gitTag = versionName
         )
     }
 
@@ -193,6 +199,43 @@ class UberAccessibilityService : AccessibilityService() {
         windows?.mapNotNull { it.root }?.forEach { addChain(it) }
         addChain(rootInActiveWindow)
         return candidates
+    }
+
+    private suspend fun captureOfferSnapshots(
+        source: String,
+        preferredRoot: AccessibilityNodeInfo?
+    ): List<Pair<AccessibilityNodeInfo, OfferSnapshot>> {
+        val sampleOffsets = listOf(0L, 50L, 120L, 250L)
+        val results = mutableListOf<Pair<AccessibilityNodeInfo, OfferSnapshot>>()
+        var previousOffset = 0L
+        sampleOffsets.forEachIndexed { sampleIndex, offset ->
+            val delta = offset - previousOffset
+            if (delta > 0) delay(delta)
+            previousOffset = offset
+            val sampleRoots = buildCandidateRoots(preferredRoot)
+            sampleRoots.forEach { root ->
+                results += root to OfferSnapshotBuilder.build(
+                    root = root,
+                    source = source,
+                    sampleIndex = sampleIndex,
+                    rootCount = sampleRoots.size
+                )
+            }
+        }
+        return results
+    }
+
+    private fun snapshotTraceContext(
+        traceContext: OfferTraceContext?,
+        snapshot: OfferSnapshot
+    ): OfferTraceContext? {
+        if (traceContext == null) return null
+        return traceContext.copy(
+            snapshotSource = snapshot.source,
+            snapshotIndex = snapshot.sampleIndex,
+            snapshotNodeCount = snapshot.nodes.size,
+            snapshotCandidateCount = snapshot.addressCandidates.size + snapshot.acceptButtonCandidates.size
+        )
     }
 
     private fun dispatchDetectedOffer(
@@ -701,79 +744,61 @@ class UberAccessibilityService : AccessibilityService() {
         preferredRoot: AccessibilityNodeInfo? = null
     ): android.view.accessibility.AccessibilityNodeInfo? {
         val helper = com.uber.autoaccept.utils.AccessibilityHelper
-        val roots = buildCandidateRoots(preferredRoot).ifEmpty {
-            windows?.mapNotNull { it.root }?.ifEmpty { null }
-                ?: listOfNotNull(rootInActiveWindow)
+        val snapshots = captureOfferSnapshots(source, preferredRoot)
+        val roots = snapshots.map { it.first }.ifEmpty {
+            buildCandidateRoots(preferredRoot).ifEmpty {
+                windows?.mapNotNull { it.root }?.ifEmpty { null }
+                    ?: listOfNotNull(rootInActiveWindow)
+            }
         }
 
-        // 비오퍼 화면 판별 — extractAllText(depth 10)와 findAccessibilityNodeInfosByText(무제한) 병행
-        fun isNonOfferRoot(root: android.view.accessibility.AccessibilityNodeInfo): Boolean {
-            val allText = helper.extractAllText(root)
-            val textCluster = helper.summarizeOfferTexts(
-                helper.extractOrderedTexts(root),
-                helper.collectResourceIds(root).keys
-            )
-            if (textCluster.blacklistTextHit != null) return true
-            val nonOfferKeywords = listOf(
-                "\uC6B4\uD589 \uB9AC\uC2A4\uD2B8",
-                "\uC0C8\uB85C\uC6B4 \uCF5C",
-                "\uC9C0\uAE08\uC740 \uC694\uCCAD\uC774 \uC5C6\uC2B5\uB2C8\uB2E4",
-                "\uC694\uCCAD 1\uAC74 \uB9E4\uCE6D",
-                "\uBAA9\uC801\uC9C0 \uB3C4\uCC29",
-                "\uC6B4\uD589 \uBA85\uC138\uC11C",
-                "\uC694\uAE08 \uC785\uB825\uD558\uAE30"
-            )
-            for (kw in nonOfferKeywords) {
-                if (allText.contains(kw)) return true
-                try {
-                    if (root.findAccessibilityNodeInfosByText(kw)?.isNotEmpty() == true) return true
-                } catch (_: Exception) {}
+        val bestSnapshotMatch = snapshots
+            .filter { (_, snapshot) ->
+                val digest = snapshot.textDigest
+                snapshot.reason != "blacklist_text_present" && !digest.contains("운행 리스트") && !digest.contains("지금은 요청이 없습니다")
             }
-            return false
-        }
+            .maxWithOrNull(compareBy<Pair<AccessibilityNodeInfo, OfferSnapshot>> { OfferSnapshotBuilder.score(it.second) }
+                .thenBy { it.second.sampleIndex }
+                .thenBy { it.second.nodes.size })
 
-        for (root in roots) {
-            if (isNonOfferRoot(root)) continue
-
-            val contentSignal = helper.inspectOfferContent(root)
-            if (contentSignal.isStructuredOffer) {
-                val textCluster = contentSignal.textCluster
-                maybeCachePrefetchedOffer(root, traceContext, contentSignal)
-                logOfferSnapshot(
-                    "content_signal_confirmed",
-                    source,
-                    root,
-                    traceContext,
-                    mapOf(
-                        "reason" to contentSignal.reason,
-                        "trip" to textCluster.tripDurationText,
-                        "eta" to textCluster.pickupEtaText,
-                        "pickup" to textCluster.pickupAddress,
-                        "dropoff" to textCluster.dropoffAddress,
-                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
-                        "has_time" to contentSignal.hasTimeContent,
-                        "has_accept" to contentSignal.hasAcceptContent
-                    )
+        if (bestSnapshotMatch != null && OfferSnapshotBuilder.score(bestSnapshotMatch.second) >= 10) {
+            val (root, snapshot) = bestSnapshotMatch
+            val updatedTraceContext = snapshotTraceContext(traceContext, snapshot)
+            maybeCachePrefetchedOffer(root, updatedTraceContext ?: traceContext, helper.inspectOfferContent(root))
+            UberOfferParser.cacheSnapshotOffer(snapshot, updatedTraceContext ?: traceContext ?: newOfferTraceContext(source, "snapshot_cache"))
+            logOfferSnapshot(
+                "snapshot_confirmed",
+                source,
+                root,
+                updatedTraceContext,
+                mapOf(
+                    "reason" to snapshot.reason,
+                    "sample_index" to snapshot.sampleIndex,
+                    "node_count" to snapshot.nodes.size,
+                    "addr_candidates" to snapshot.addressCandidates.size,
+                    "accept_candidates" to snapshot.acceptButtonCandidates.size,
+                    "pickup" to snapshot.pickupAddress,
+                    "dropoff" to snapshot.dropoffAddress,
+                    "snapshot_score" to OfferSnapshotBuilder.score(snapshot)
                 )
-                RemoteLogger.logOfferDetection(
-                    stage = "content_signal_confirmed",
-                    source = source,
-                    success = true,
-                    details = mapOf(
-                        "reason" to contentSignal.reason,
-                        "trip" to (textCluster.tripDurationText ?: "null"),
-                        "eta" to (textCluster.pickupEtaText ?: "null"),
-                        "pickup" to (textCluster.pickupAddress ?: "null"),
-                        "dropoff" to (textCluster.dropoffAddress ?: "null"),
-                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
-                        "has_time" to contentSignal.hasTimeContent,
-                        "has_accept" to contentSignal.hasAcceptContent,
-                        "package_name" to (root.packageName?.toString() ?: "null")
-                    ),
-                    traceContext = traceContext
-                )
-                return root
-            }
+            )
+            RemoteLogger.logOfferDetection(
+                stage = "snapshot_confirmed",
+                source = source,
+                success = true,
+                details = mapOf(
+                    "reason" to snapshot.reason,
+                    "sample_index" to snapshot.sampleIndex,
+                    "node_count" to snapshot.nodes.size,
+                    "addr_candidates" to snapshot.addressCandidates.size,
+                    "accept_candidates" to snapshot.acceptButtonCandidates.size,
+                    "pickup" to (snapshot.pickupAddress ?: "null"),
+                    "dropoff" to (snapshot.dropoffAddress ?: "null"),
+                    "package_name" to snapshot.packageName
+                ),
+                traceContext = updatedTraceContext ?: traceContext
+            )
+            return root
         }
         RemoteLogger.logOfferDetection(
             stage = "offer_window_not_found",

@@ -58,17 +58,25 @@ object RemoteLogger {
     }
 
     private fun withTrace(details: Map<String, Any?>, traceContext: OfferTraceContext?): Map<String, Any?> {
-        if (traceContext == null) return details
+        if (traceContext == null) return details + commonLogMeta()
         return mapOf(
             "trace_id" to traceContext.traceId,
             "detected_at_ms" to traceContext.detectedAtMs,
             "detection_source" to traceContext.detectionSource,
-            "detection_stage" to traceContext.detectionStage
-        ) + details
+            "detection_stage" to traceContext.detectionStage,
+            "snapshot_source" to traceContext.snapshotSource,
+            "snapshot_index" to traceContext.snapshotIndex,
+            "snapshot_node_count" to traceContext.snapshotNodeCount,
+            "snapshot_candidate_count" to traceContext.snapshotCandidateCount,
+            "app_version" to traceContext.appVersion,
+            "git_tag" to traceContext.gitTag,
+            "trace_age_ms" to (System.currentTimeMillis() - traceContext.detectedAtMs)
+        ) + commonLogMeta() + details
     }
 
     private fun withOffer(details: Map<String, Any?>, offer: UberOffer?): Map<String, Any?> {
-        if (offer == null) return details
+        if (offer == null) return details + commonLogMeta()
+        val snapshot = offer.snapshot
         return withTrace(
             mapOf(
                 "offer_uuid" to offer.offerUuid,
@@ -76,11 +84,21 @@ object RemoteLogger {
                 "dropoff" to offer.dropoffLocation,
                 "customer_distance" to offer.customerDistance,
                 "trip_distance" to offer.tripDistance,
-                "parser_source" to offer.parserSource
+                "parser_source" to offer.parserSource,
+                "snapshot_age_ms" to snapshot?.let { System.currentTimeMillis() - it.capturedAtMs },
+                "snapshot_reason" to snapshot?.reason,
+                "snapshot_accept_candidates" to snapshot?.acceptButtonCandidates?.size,
+                "snapshot_address_candidates" to snapshot?.addressCandidates?.size,
+                "fast_path" to (snapshot != null)
             ) + details,
             offer.traceContext
         )
     }
+
+    private fun commonLogMeta(): Map<String, Any?> = mapOf(
+        "app_version" to appVersion,
+        "git_tag" to appVersion
+    )
 
     fun initialize(context: Context, deviceId: String, enabled: Boolean) {
         this.appContext = context.applicationContext
