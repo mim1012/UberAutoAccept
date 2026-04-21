@@ -16,6 +16,18 @@ class UberOfferParser {
         private const val TAG = "UberOfferParser"
         private const val OFFER_LOGCAT_TAG = "UAA_OFFER"
         private val ADDRESS_TERMS = listOf("\uC2DC", "\uAD6C", "\uB3D9", "\uB85C", "\uAE38", "\uC5ED", "\uD130\uBBF8\uB110")
+        private val CITY_ADDRESS_TERMS = listOf("\uD2B9\uBCC4\uC2DC", "\uAD11\uC5ED\uC2DC", "\uD2B9\uBCC4\uC790\uCE58\uC2DC")
+        private val METRO_ADDRESS_TERMS = listOf(
+            "\uC11C\uC6B8",
+            "\uC778\uCC9C",
+            "\uACBD\uAE30",
+            "\uBD80\uC0B0",
+            "\uB300\uAD6C",
+            "\uB300\uC804",
+            "\uAD11\uC8FC",
+            "\uC6B8\uC0B0",
+            "\uC138\uC885"
+        )
         private val ACCEPT_TEXTS = listOf("\uCF5C \uC218\uB77D", "\uC218\uB77D", "Accept", "ACCEPT")
         private val DROPOFF_FALLBACK_IDS = listOf(
             "uda_offer_details_title",
@@ -244,8 +256,77 @@ class UberOfferParser {
             return ADDRESS_TERMS.any { text.contains(it) }
         }
 
+        fun looksLikeCityAddress(text: String?): Boolean {
+            if (text.isNullOrBlank()) return false
+            val candidate = text.trim()
+            if (candidate.length < 10) return false
+            if (candidate.endsWith("\uCABD")) return false
+            return CITY_ADDRESS_TERMS.any { candidate.contains(it) }
+        }
+
+        fun looksLikeMetroAddress(text: String?): Boolean {
+            if (text.isNullOrBlank()) return false
+            val candidate = text.trim()
+            if (candidate.length < 10) return false
+            if (candidate.endsWith("\uCABD")) return false
+            return METRO_ADDRESS_TERMS.any { candidate.contains(it) } && looksLikeAddress(candidate)
+        }
+
         fun findTextByViewId(viewId: String): String? {
             return AccessibilityHelper.findNodeByViewId(rootNode, viewId)?.text?.toString()
+        }
+
+        fun findDistinctTextsByKeyword(
+            keyword: String,
+            predicate: (String?) -> Boolean
+        ): List<String> {
+            return try {
+                rootNode.findAccessibilityNodeInfosByText(keyword)
+                    ?.mapNotNull { node ->
+                        node.text?.toString()?.trim()
+                            ?.takeIf { it.isNotBlank() && predicate(it) }
+                    }
+                    ?.distinct()
+                    ?: emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        val cityAddressCandidates = linkedSetOf<String>()
+        CITY_ADDRESS_TERMS.forEach { keyword ->
+            cityAddressCandidates += findDistinctTextsByKeyword(keyword, ::looksLikeCityAddress)
+        }
+        if (cityAddressCandidates.isNotEmpty()) {
+            val addresses = cityAddressCandidates.toList()
+            return AddressMatch(
+                pickup = addresses[0],
+                dropoff = addresses.getOrElse(1) { addresses[0] },
+                confidence = ParseConfidence.MEDIUM,
+                parserSource = "virtual_city_keyword",
+                pickupViewId = "virtual_text:\uD2B9\uBCC4/\uAD11\uC5ED\uC2DC",
+                dropoffViewId = "virtual_text:\uD2B9\uBCC4/\uAD11\uC5ED\uC2DC",
+                pickupValidated = true,
+                dropoffValidated = true
+            )
+        }
+
+        val metroAddressCandidates = linkedSetOf<String>()
+        METRO_ADDRESS_TERMS.forEach { keyword ->
+            metroAddressCandidates += findDistinctTextsByKeyword(keyword, ::looksLikeMetroAddress)
+        }
+        if (metroAddressCandidates.isNotEmpty()) {
+            val addresses = metroAddressCandidates.toList()
+            return AddressMatch(
+                pickup = addresses[0],
+                dropoff = addresses.getOrElse(1) { addresses[0] },
+                confidence = ParseConfidence.LOW,
+                parserSource = "virtual_metro_keyword",
+                pickupViewId = "virtual_text:metro",
+                dropoffViewId = "virtual_text:metro",
+                pickupValidated = true,
+                dropoffValidated = true
+            )
         }
 
         val primaryPickup = findTextByViewId("uda_details_pickup_address_text_view")

@@ -26,6 +26,7 @@ data class OfferTextCluster(
     val titleText: String? = null,
     val tripDurationText: String? = null,
     val pickupEtaText: String? = null,
+    val regionText: String? = null,
     val pickupAddress: String? = null,
     val dropoffAddress: String? = null,
     val directionText: String? = null,
@@ -40,7 +41,8 @@ data class OfferContentSignal(
     val textCluster: OfferTextCluster,
     val hasPickupDropoffContent: Boolean,
     val hasTimeContent: Boolean,
-    val hasAcceptContent: Boolean
+    val hasAcceptContent: Boolean,
+    val hasRegionContent: Boolean
 )
 
 object AccessibilityHelper {
@@ -61,6 +63,14 @@ object AccessibilityHelper {
     private val ACCEPT_TERMS = listOf("\uCF5C \uC218\uB77D", "\uC218\uB77D", "\uD655\uC778", "accept")
     private val OFFERISH_ID_TOKENS = listOf("offer", "dispatch", "pickup", "dropoff", "accept", "upfront", "pulse", "fare", "map")
     private val OFFER_TITLE_TERMS = listOf("\uAC00\uB9F9 \uC804\uC6A9 \uCF5C", "\uC77C\uBC18 \uCF5C", "XL")
+    private val REGION_TERMS = listOf(
+        "\uC11C\uC6B8",
+        "\uC11C\uC6B8\uD2B9\uBCC4\uC2DC",
+        "\uC778\uCC9C",
+        "\uC778\uCC9C\uAD11\uC5ED\uC2DC",
+        "\uACBD\uAE30",
+        "\uACBD\uAE30\uB3C4"
+    )
     private val NON_OFFER_TEXTS = listOf(
         "\uC6B4\uD589 \uB9AC\uC2A4\uD2B8",
         "\uC9C0\uAE08\uC740 \uC694\uCCAD\uC774 \uC5C6\uC2B5\uB2C8\uB2E4",
@@ -233,6 +243,13 @@ object AccessibilityHelper {
         }
         val tripDurationText = normalizedTexts.firstOrNull { TRIP_DURATION_REGEX.containsMatchIn(it) }
         val pickupEtaText = normalizedTexts.firstOrNull { PICKUP_ETA_REGEX.containsMatchIn(it) }
+        val regionText = normalizedTexts.firstOrNull { text ->
+            val compact = text.replace(" ", "")
+            REGION_TERMS.any { term ->
+                text.contains(term, ignoreCase = true) ||
+                    compact.contains(term.replace(" ", ""), ignoreCase = true)
+            }
+        }
         val acceptText = normalizedTexts.firstOrNull { text ->
             ACCEPT_TERMS.any { term -> text.contains(term, ignoreCase = true) }
         }
@@ -260,6 +277,7 @@ object AccessibilityHelper {
             titleText = titleText,
             tripDurationText = tripDurationText,
             pickupEtaText = pickupEtaText,
+            regionText = regionText,
             pickupAddress = addressCandidates.getOrNull(0),
             dropoffAddress = addressCandidates.getOrNull(1),
             directionText = directionText,
@@ -276,7 +294,8 @@ object AccessibilityHelper {
                 textCluster = OfferTextCluster(false, "no_root"),
                 hasPickupDropoffContent = false,
                 hasTimeContent = false,
-                hasAcceptContent = false
+                hasAcceptContent = false,
+                hasRegionContent = false
             )
         }
 
@@ -296,7 +315,8 @@ object AccessibilityHelper {
             ?: textCluster.tripDurationText
         val etaText = textCluster.pickupEtaText
             ?: texts.firstOrNull { PICKUP_ETA_REGEX.containsMatchIn(it) }
-        val hasTimeContent = !durationText.isNullOrBlank() && !etaText.isNullOrBlank()
+        val hasTimeContent = !durationText.isNullOrBlank() || !etaText.isNullOrBlank()
+        val hasRegionContent = textCluster.regionText != null
 
         val acceptViewIds = listOf(
             "uda_details_accept_button",
@@ -309,11 +329,25 @@ object AccessibilityHelper {
         }
         val hasAcceptContent = hasAcceptView || hasAcceptText
 
+        val provisionalScore = listOf(
+            textCluster.titleText != null,
+            hasTimeContent,
+            hasAcceptContent,
+            hasRegionContent
+        ).count { it }
+        val hasOfferContainer = resourceIds.any { id ->
+            id in UberOfferGate.allMarkerViewIds() ||
+                OFFERISH_ID_TOKENS.any { token -> id.contains(token, ignoreCase = true) }
+        }
+
         val isStructuredOffer =
-            textCluster.isLikelyOffer || (hasPickupDropoffContent && hasTimeContent && hasAcceptContent)
+            textCluster.isLikelyOffer ||
+                (hasPickupDropoffContent && hasTimeContent && hasAcceptContent) ||
+                ((hasAcceptContent || hasOfferContainer) && provisionalScore >= 3)
         val reason = when {
             textCluster.isLikelyOffer -> textCluster.reason
-            isStructuredOffer -> "address_time_accept_visible"
+            hasPickupDropoffContent && hasTimeContent && hasAcceptContent -> "address_time_accept_visible"
+            ((hasAcceptContent || hasOfferContainer) && provisionalScore >= 3) -> "title_time_region_accept_visible"
             textCluster.blacklistTextHit != null -> "blacklist_text_present"
             else -> "missing_structured_offer_content"
         }
@@ -324,7 +358,8 @@ object AccessibilityHelper {
             textCluster = textCluster,
             hasPickupDropoffContent = hasPickupDropoffContent,
             hasTimeContent = hasTimeContent,
-            hasAcceptContent = hasAcceptContent
+            hasAcceptContent = hasAcceptContent,
+            hasRegionContent = hasRegionContent
         )
     }
 
@@ -427,6 +462,7 @@ object AccessibilityHelper {
             textCluster.titleText?.let { add("title=$it") }
             textCluster.tripDurationText?.let { add("trip=$it") }
             textCluster.pickupEtaText?.let { add("eta=$it") }
+            textCluster.regionText?.let { add("region=$it") }
             textCluster.pickupAddress?.let { add("pickup=$it") }
             textCluster.dropoffAddress?.let { add("dropoff=$it") }
             textCluster.acceptText?.let { add("accept=$it") }

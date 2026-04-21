@@ -1,6 +1,7 @@
 package com.uber.autoaccept.service
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,6 +15,7 @@ import com.uber.autoaccept.logging.RemoteLogger
 import com.uber.autoaccept.model.*
 import com.uber.autoaccept.state.*
 import com.uber.autoaccept.utils.OfferCardDetector
+import com.uber.autoaccept.utils.OfferDetectionNoiseFilter
 import com.uber.autoaccept.utils.OfferSnapshotBuilder
 import com.uber.autoaccept.utils.ScreenshotManager
 import com.uber.autoaccept.utils.UberOfferGate
@@ -21,11 +23,13 @@ import com.uber.autoaccept.utils.UberOfferParser
 import kotlinx.coroutines.*
 import org.opencv.android.OpenCVLoader
 import kotlinx.coroutines.flow.collect
+import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 /**
- * Uber 자동 수락 AccessibilityService
- * Vortex의 메인 루프 패턴을 따름
+ * Uber ???筌???嚥???AccessibilityService
+ * Vortex??癲ル슢??????룸Ŧ爾???????????ㅻ깹??
  */
 class UberAccessibilityService : AccessibilityService() {
 
@@ -35,6 +39,7 @@ class UberAccessibilityService : AccessibilityService() {
         private const val ACTION_ENGINE_START = "com.uber.autoaccept.ACTION_ENGINE_START"
         private const val ACTION_ENGINE_STOP = "com.uber.autoaccept.ACTION_ENGINE_STOP"
         private const val OFFER_LOGCAT_TAG = "UAA_OFFER"
+        private const val DETECT_LOGCAT_TAG = "UAA_DETECT"
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -47,11 +52,12 @@ class UberAccessibilityService : AccessibilityService() {
     private val stateHandlers = mutableListOf<IStateHandler>()
     private var offerDetectionJob: Job? = null
 
-    /** 수락 후 3초 쿨다운: 화면 전환 전 stale 트리 재파싱 방지 */
+    /** ??嚥?????3????얜굝???? ??釉먮뻤????ш낄援????stale ?嶺뚮ㅎ遊뉔걡???????袁⑸젻泳? */
     @Volatile private var lastAcceptTimeMs: Long = 0L
     private val ACCEPT_COOLDOWN_MS = 3000L
     @Volatile private var lastVisualCardSignature: String? = null
     @Volatile private var lastVisualDetectionAtMs: Long = 0L
+    private val capturedOfferSnapshots = mutableSetOf<String>()
 
     private lateinit var screenshotManager: ScreenshotManager
     private val offerCardDetector = OfferCardDetector()
@@ -73,23 +79,22 @@ class UberAccessibilityService : AccessibilityService() {
             val lpX = prefs.getFloat("target_lp_x", -1f)
             val lpY = prefs.getFloat("target_lp_y", -1f)
             if (lpX < 0 || lpY < 0) {
-                Log.w("UAA", "[TEST] 저장된 lp 좌표 없음 — ⊕ 먼저 배치하세요")
+                Log.w("UAA", "[TEST] stored lp target missing; place the target first")
                 return
             }
             val (tx, ty) = lpToClickCoord(lpX, lpY)
-            Log.i("UAA", "[TEST] 테스트 탭 실행: lp=($lpX,$lpY) → click=($tx,$ty)")
+            Log.i("UAA", "[TEST] executing test tap: lp=($lpX,$lpY) -> click=($tx,$ty)")
 
             if (com.uber.autoaccept.utils.ShizukuHelper.hasPermission()) {
-                // Shizuku: input tap (FLAG_IS_GENERATED_BY_ACCESSIBILITY 우회)
+                // Shizuku tap avoids accessibility-generated gesture tagging.
                 serviceScope.launch {
                     FloatingWidgetService.disableTargetTouch()
                     val ok = com.uber.autoaccept.utils.ShizukuHelper.tap(tx, ty)
-                    Log.i("UAA", "[TEST] Shizuku tap ${if (ok) "✅" else "❌"} ($tx,$ty)")
+                    Log.i("UAA", "[TEST] Shizuku tap ${if (ok) "OK" else "FAIL"} ($tx,$ty)")
                     FloatingWidgetService.enableTargetTouch()
                 }
             } else {
-                // fallback: dispatchGesture
-                Log.w("UAA", "[TEST] Shizuku 미사용 → dispatchGesture fallback")
+                Log.w("UAA", "[TEST] no Shizuku; using dispatchGesture fallback")
                 FloatingWidgetService.disableTargetTouch()
                 val path = android.graphics.Path().apply { moveTo(tx, ty) }
                 val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, 10L)
@@ -97,14 +102,16 @@ class UberAccessibilityService : AccessibilityService() {
                     android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(),
                     object : AccessibilityService.GestureResultCallback() {
                         override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
-                            Log.i("UAA", "[TEST] ✅ 제스처 completed ($tx, $ty)")
+                            Log.i("UAA", "[TEST] gesture completed ($tx, $ty)")
                             FloatingWidgetService.enableTargetTouch()
                         }
+
                         override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
-                            Log.w("UAA", "[TEST] ❌ 제스처 cancelled ($tx, $ty)")
+                            Log.w("UAA", "[TEST] gesture cancelled ($tx, $ty)")
                             FloatingWidgetService.enableTargetTouch()
                         }
-                    }, null
+                    },
+                    null
                 )
             }
         }
@@ -122,7 +129,7 @@ class UberAccessibilityService : AccessibilityService() {
                     ServiceState.start("accessibility_receiver:$ACTION_ENGINE_START")
                     RemoteLogger.logRecovery("engine", "explicit_start", true,
                         mapOf("accessibility_connected" to true))
-                    Log.i("UAA", "[ENGINE] START 수신 → active=true")
+                    Log.i("UAA", "[ENGINE] START ??筌뚯슜堉???active=true")
                 }
                 ACTION_ENGINE_STOP -> {
                     RemoteLogger.logEngineCommand(
@@ -133,7 +140,7 @@ class UberAccessibilityService : AccessibilityService() {
                     ServiceState.stop("accessibility_receiver:$ACTION_ENGINE_STOP")
                     RemoteLogger.logRecovery("engine", "explicit_stop", true,
                         mapOf("accessibility_connected" to true))
-                    Log.i("UAA", "[ENGINE] STOP 수신 → active=false")
+                    Log.i("UAA", "[ENGINE] STOP ??筌뚯슜堉???active=false")
                 }
             }
             RemoteLogger.flushNow()
@@ -141,7 +148,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun lpToClickCoord(lpX: Float, lpY: Float): Pair<Float, Float> {
-        val halfPx = resources.displayMetrics.density * 60f  // 120dp의 절반
+        val halfPx = resources.displayMetrics.density * 60f  // 120dp??????고떘
         return Pair(lpX + halfPx, lpY + halfPx)
     }
 
@@ -161,6 +168,291 @@ class UberAccessibilityService : AccessibilityService() {
     private fun formatOfferLogDetails(details: Map<String, Any?>): String {
         if (details.isEmpty()) return "-"
         return details.entries.joinToString(",") { (key, value) -> "$key=${value ?: "null"}" }
+    }
+
+    private fun currentStateName(): String {
+        return stateMachine.getCurrentState()::class.simpleName ?: "unknown"
+    }
+
+    private fun logDetectionStep(
+        step: String,
+        traceContext: OfferTraceContext? = null,
+        details: Map<String, Any?> = emptyMap()
+    ) {
+        Log.i(
+            DETECT_LOGCAT_TAG,
+            "[trace=${traceContext?.traceId ?: "none"}][$step] state=${currentStateName()} details=${formatOfferLogDetails(details)}"
+        )
+    }
+
+    private fun summarizeRootForDetection(root: AccessibilityNodeInfo?): String {
+        if (root == null) return "root=null"
+        val packageName = root.packageName?.toString() ?: "null"
+        val className = root.className?.toString() ?: "null"
+        val childCount = try { root.childCount } catch (_: Exception) { -1 }
+        val snapshot = com.uber.autoaccept.utils.AccessibilityHelper.buildOfferDebugLine(root)
+        return "pkg=$packageName class=$className childCount=$childCount $snapshot"
+    }
+
+    private fun summarizeRootBrief(root: AccessibilityNodeInfo?): String {
+        if (root == null) return "root=null"
+        val packageName = root.packageName?.toString() ?: "null"
+        val className = root.className?.toString() ?: "null"
+        val childCount = try { root.childCount } catch (_: Exception) { -1 }
+        val viewId = try { root.viewIdResourceName?.substringAfter(":id/") ?: "-" } catch (_: Exception) { "-" }
+        val text = try {
+            root.text?.toString()?.trim()?.take(40)
+                ?: root.contentDescription?.toString()?.trim()?.take(40)
+                ?: "-"
+        } catch (_: Exception) {
+            "-"
+        }
+        return "pkg=$packageName class=$className childCount=$childCount viewId=$viewId text=$text"
+    }
+
+    private fun collectSourceViewIds(node: AccessibilityNodeInfo?, maxDepth: Int = 6): List<String> {
+        val ids = linkedSetOf<String>()
+        var current = node
+        var depth = 0
+        while (current != null && depth < maxDepth) {
+            try {
+                current.viewIdResourceName
+                    ?.substringAfter(":id/")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(ids::add)
+            } catch (_: Exception) {
+            }
+            current = try { current.parent } catch (_: Exception) { null }
+            depth++
+        }
+        return ids.toList()
+    }
+
+    private fun collectSourceTexts(node: AccessibilityNodeInfo?, maxDepth: Int = 6): List<String> {
+        val texts = linkedSetOf<String>()
+        var current = node
+        var depth = 0
+        while (current != null && depth < maxDepth) {
+            try {
+                current.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
+                current.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let(texts::add)
+            } catch (_: Exception) {
+            }
+            current = try { current.parent } catch (_: Exception) { null }
+            depth++
+        }
+        return texts.toList()
+    }
+
+    private fun shouldProbeRoot(root: AccessibilityNodeInfo?): Boolean {
+        if (root == null) return false
+        val helper = com.uber.autoaccept.utils.AccessibilityHelper
+        val signal = helper.inspectOfferContent(root)
+        if (signal.isStructuredOffer) {
+            return true
+        }
+        if (candidateOfferReason(root) != null) {
+            return true
+        }
+        return OfferDetectionNoiseFilter.shouldStartProbe(
+            root.className?.toString(),
+            helper.collectResourceIds(root).keys,
+            helper.extractOrderedTexts(root)
+        )
+    }
+
+    private fun candidateOfferReason(root: AccessibilityNodeInfo?): String? {
+        if (root == null) return null
+        val signal = com.uber.autoaccept.utils.AccessibilityHelper.inspectOfferContent(root)
+        return when {
+            signal.hasAcceptContent -> "accept_content_visible"
+            signal.hasPickupDropoffContent -> "pickup_dropoff_visible"
+            signal.hasTimeContent -> "time_content_visible"
+            else -> null
+        }
+    }
+
+    private fun shouldProbeFromEventSource(event: AccessibilityEvent): Boolean {
+        val source = event.source
+        val className = event.className?.toString()
+        val sourceViewIds = collectSourceViewIds(source)
+        val sourceTexts = buildList {
+            addAll(collectSourceTexts(source))
+            addAll(event.text?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) } ?: emptyList())
+        }.distinct()
+        if (OfferDetectionNoiseFilter.shouldStartProbe(className, sourceViewIds, sourceTexts)) {
+            return true
+        }
+        val candidates = linkedMapOf<Int, AccessibilityNodeInfo>()
+
+        fun addCandidate(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            candidates.putIfAbsent(System.identityHashCode(node), node)
+        }
+
+        // Prioritize the active/root windows before the event-source parent chain.
+        addCandidate(rootInActiveWindow)
+        windows?.mapNotNull { it.root }?.forEach(::addCandidate)
+        buildCandidateRoots(source).forEach(::addCandidate)
+
+        return candidates.values
+            .take(8)
+            .any(::shouldProbeRoot)
+    }
+
+    private fun shouldRunWatchdogScan(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return shouldProbeRoot(root)
+    }
+
+    private suspend fun runBurstOfferProbe(
+        source: String,
+        stage: String,
+        eventSource: AccessibilityNodeInfo?,
+        details: Map<String, Any?> = emptyMap()
+    ) {
+        val burstDelaysMs = longArrayOf(0L, 40L, 100L, 180L)
+        val traceContext = newOfferTraceContext(source, stage)
+
+        for ((attempt, delayMs) in burstDelaysMs.withIndex()) {
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+            if (stateMachine.getCurrentState() !is AppState.Online) {
+                return
+            }
+
+            logDetectionStep(
+                "burst_probe_attempt",
+                traceContext,
+                mapOf(
+                    "source" to source,
+                    "stage" to stage,
+                    "attempt" to (attempt + 1),
+                    "delay_ms" to delayMs,
+                    "event_source_summary" to summarizeRootBrief(eventSource),
+                    "active_root_summary" to summarizeRootBrief(rootInActiveWindow)
+                ) + details
+            )
+
+            if (attempt == 0) {
+                logOfferSnapshot(
+                    "${stage}_received",
+                    source,
+                    eventSource ?: rootInActiveWindow,
+                    traceContext,
+                    mapOf("attempt" to (attempt + 1)) + details
+                )
+            }
+
+            val offerRoot = findOfferWindow(
+                source = source,
+                traceContext = traceContext,
+                preferredRoot = eventSource,
+                allowLooseTimeSignal = attempt >= 1
+            )
+            if (offerRoot != null) {
+                dispatchDetectedOffer(
+                    offerRoot,
+                    source,
+                    stage,
+                    mapOf(
+                        "attempt" to (attempt + 1),
+                        "delay_ms" to delayMs,
+                        "allow_loose_time_signal" to (attempt >= 1)
+                    ) + details,
+                    traceContext
+                )
+                return
+            }
+
+            if (attempt in 1..2) {
+                runVisualPollingPass()
+                if (stateMachine.getCurrentState() !is AppState.Online) {
+                    return
+                }
+            }
+        }
+    }
+
+    private fun shouldCaptureOfferSnapshot(traceContext: OfferTraceContext?): Boolean {
+        val traceId = traceContext?.traceId ?: return false
+        synchronized(capturedOfferSnapshots) {
+            if (capturedOfferSnapshots.contains(traceId)) return false
+            capturedOfferSnapshots.add(traceId)
+            return true
+        }
+    }
+
+    private fun saveOfferSnapshotBitmap(
+        bitmap: Bitmap,
+        traceContext: OfferTraceContext?,
+        source: String,
+        stage: String
+    ): String? {
+        val traceId = traceContext?.traceId ?: return null
+        return try {
+            val dir = File(filesDir, "offer-snapshots").apply { mkdirs() }
+            val file = File(dir, "${System.currentTimeMillis()}_${traceId}_${source}_${stage}.png")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            logDetectionStep(
+                "offer_snapshot_saved",
+                traceContext,
+                mapOf(
+                    "source" to source,
+                    "stage" to stage,
+                    "path" to file.absolutePath,
+                    "width" to bitmap.width,
+                    "height" to bitmap.height
+                )
+            )
+            file.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save offer snapshot: ${e.message}", e)
+            logDetectionStep(
+                "offer_snapshot_save_failed",
+                traceContext,
+                mapOf(
+                    "source" to source,
+                    "stage" to stage,
+                    "error" to (e.message ?: "unknown")
+                )
+            )
+            null
+        }
+    }
+
+    private fun captureOfferSnapshot(traceContext: OfferTraceContext?, source: String, stage: String) {
+        if (!shouldCaptureOfferSnapshot(traceContext)) return
+        serviceScope.launch {
+            val traceId = traceContext?.traceId
+            val bitmap = screenshotManager.capture()
+            if (bitmap == null) {
+                if (traceId != null) {
+                    synchronized(capturedOfferSnapshots) {
+                        capturedOfferSnapshots.remove(traceId)
+                    }
+                }
+                logDetectionStep(
+                    "offer_snapshot_capture_failed",
+                    traceContext,
+                    mapOf("source" to source, "stage" to stage, "reason" to "capture_null")
+                )
+                return@launch
+            }
+            try {
+                val saved = saveOfferSnapshotBitmap(bitmap, traceContext, source, stage)
+                if (saved == null && traceId != null) {
+                    synchronized(capturedOfferSnapshots) {
+                        capturedOfferSnapshots.remove(traceId)
+                    }
+                }
+            } finally {
+                if (!bitmap.isRecycled) bitmap.recycle()
+            }
+        }
     }
 
     private fun logOfferSnapshot(
@@ -245,6 +537,16 @@ class UberAccessibilityService : AccessibilityService() {
         details: Map<String, Any?> = emptyMap(),
         traceContext: OfferTraceContext = newOfferTraceContext(source, stage)
     ) {
+        logDetectionStep(
+            "dispatch_detected_offer",
+            traceContext,
+            mapOf(
+                "source" to source,
+                "stage" to stage,
+                "root_summary" to summarizeRootForDetection(offerRoot)
+            ) + details
+        )
+        captureOfferSnapshot(traceContext, source, stage)
         logOfferSnapshot(stage, source, offerRoot, traceContext, details)
         RemoteLogger.logOfferDetection(
             stage = "trigger_parse",
@@ -320,11 +622,7 @@ class UberAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
 
-        Log.i(TAG, "서비스 연결됨")
-        Log.i("UAA", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        Log.i("UAA", "[SERVICE] ✅ 접근성 서비스 연결됨")
-
-        // ServiceState 초기화 + 프로세스 재시작 시 마지막 상태 복원
+        // ServiceState ?縕?猿녿뎨??+ ??ш끽維곩ㅇ?嶺뚮ㅎ?ц짆????????癲ル슢???癲????ㅺ컼???怨뚮옖甕??
         ServiceState.init(this)
         ServiceState.setAccessibilityConnected(true)
         val wasRestored = ServiceState.restoreIfNeeded()
@@ -334,29 +632,29 @@ class UberAccessibilityService : AccessibilityService() {
             RemoteLogger.logRecovery("engine", "service_connected_auto_start", true, mapOf("was_restored" to wasRestored))
         }
 
-        // 설정 로드
+        // ???源놁젳 ?棺??짆?삠궘?
         config = loadConfig()
 
-        // 컴포넌트 초기화
+        // ????????⑤베肄??縕?猿녿뎨??
         parser = UberOfferParser()
         filterEngine = FilterEngine(config.filterSettings)
 
-        // Config reload receiver 등록
+        // Config reload receiver ?濚밸Ŧ援욃ㅇ?
         registerReceiver(configReloadReceiver, IntentFilter("com.uber.autoaccept.RELOAD_CONFIG"),
             Context.RECEIVER_NOT_EXPORTED)
 
-        // TEST_TAP receiver 등록
+        // TEST_TAP receiver ?濚밸Ŧ援욃ㅇ?
         registerReceiver(testTapReceiver, IntentFilter("com.uber.autoaccept.TEST_TAP"),
             Context.RECEIVER_NOT_EXPORTED)
 
-        // 엔진 START/STOP은 접근성 서비스가 최종 소유
+        // ??釉먯뒭??START/STOP?? ???쒋닪?????筌먐삳４??? 癲ル슔?됭짆?륂렭?????
         val engineFilter = IntentFilter().apply {
             addAction(ACTION_ENGINE_START)
             addAction(ACTION_ENGINE_STOP)
         }
         registerReceiver(engineControlReceiver, engineFilter, Context.RECEIVER_NOT_EXPORTED)
 
-        // 원격 로깅 초기화 (Supabase 사용)
+        // ??????棺??짆???縕?猿녿뎨??(Supabase ????
         RemoteLogger.initialize(this, config.deviceId, config.remoteLoggingEnabled)
         RemoteLogger.currentStateSupplier = { stateMachine.getCurrentState()::class.simpleName ?: "unknown" }
         RemoteLogger.logServiceConnected()
@@ -366,50 +664,58 @@ class UberAccessibilityService : AccessibilityService() {
         }
         RemoteLogger.flushNow()
 
-        // Shizuku UserService 바인딩
+        // Shizuku UserService ?袁⑸즴????
         if (config.enableShizuku) {
             com.uber.autoaccept.utils.ShizukuHelper.bindService()
         }
 
-        // OpenCV 초기화
+        // OpenCV ?縕?猿녿뎨??
         screenshotManager = ScreenshotManager(this)
         if (!OpenCVLoader.initLocal()) {
-            Log.e(TAG, "OpenCV 초기화 실패")
-        } else {
-            Log.i(TAG, "OpenCV 초기화 성공")
+            Log.e(TAG, "OpenCV ?縕?猿녿뎨??????됰꽡")
+        } else {            Log.i(TAG, "OpenCV initialized successfully")
         }
 
-        // 상태 핸들러 등록
+        // ???ㅺ컼???嶺뚮ㅎ?볠뤃???濚밸Ŧ援욃ㅇ?
         registerStateHandlers()
 
-        // 상태 관찰 시작
+        // ???ㅺ컼?????굿癲???筌믨퀣援?
         observeState()
 
-        // 서비스 연결 시 Uber 앱이 이미 열려있으면 즉시 Online으로 전환 + 오퍼 스캔
+        // ??筌먐삳４?????ㅼ뒦????Uber ?濚밸Ŧ?깁????? ???????源끹걬癲?癲ル슣鍮뽳쭕??Online???⑥????ш낄援??+ ????됰군 ????몃펽
         val rootNode = rootInActiveWindow
         if (rootNode?.packageName == UBER_PACKAGE) {
-            Log.i(TAG, "서비스 연결 시 Uber 앱 이미 열려있음 → Online 전환 + 즉시 오퍼 스캔")
+            Log.i(TAG, "??筌먐삳４?????ㅼ뒦????Uber ?????? ???????源낆쓱 ??Online ??ш낄援??+ 癲ル슣鍮뽳쭕??????됰군 ????몃펽")
             stateMachine.handleEvent(StateEvent.UberAppOpened)
             serviceScope.launch {
                 delay(300)
                 if (stateMachine.getCurrentState() is AppState.Online) {
+                    if (!shouldRunWatchdogScan()) {
+                        logDetectionStep(
+                            "service_connected_scan_skipped",
+                            details = mapOf(
+                                "active_root_summary" to summarizeRootBrief(rootInActiveWindow)
+                            )
+                        )
+                        return@launch
+                    }
                     val traceContext = newOfferTraceContext("service_connected", "startup_scan")
                     RemoteLogger.logOfferDetection("startup_scan", "service_connected", true, traceContext = traceContext)
                     val offerRoot = findOfferWindow("service_connected", traceContext)
                     if (offerRoot != null) {
-                        Log.i(TAG, "재접속 시 오퍼 즉시 감지")
+                        Log.i(TAG, "???????????됰군 癲ル슣鍮뽳쭕????좊즴??")
                         dispatchDetectedOffer(offerRoot, "service_connected", "startup_scan", traceContext = traceContext)
                     }
                 }
             }
         }
 
-        Log.i("UAA", "[SERVICE] 초기화 완료 | 모드: ${config.filterSettings.mode} | 최대 고객 거리: ${config.filterSettings.maxCustomerDistance}km")
-        Log.i(TAG, "초기화 완료. 모드: ${config.filterSettings.mode}")
+        Log.i("UAA", "[SERVICE] ?縕?猿녿뎨????ш끽維??| 癲ル슢?꾤땟??? ${config.filterSettings.mode} | 癲ル슔?됭짆? ??關履??癲꾧퀗???? ${config.filterSettings.maxCustomerDistance}km")
+        Log.i(TAG, "?縕?猿녿뎨????ш끽維?? 癲ル슢?꾤땟??? ${config.filterSettings.mode}")
     }
 
     /**
-     * 상태 핸들러 등록
+     * ???ㅺ컼???嶺뚮ㅎ?볠뤃???濚밸Ŧ援욃ㅇ?
      */
     private lateinit var acceptingHandler: AcceptingHandler
 
@@ -439,27 +745,27 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 상태 관찰 및 자동 처리
-     * Vortex의 메인 루프 패턴
+     * ???ㅺ컼?????굿癲??????筌?癲ル슪?ｇ몭??
+     * Vortex??癲ル슢??????룸Ŧ爾???????
      */
     private fun observeState() {
         serviceScope.launch {
             stateMachine.currentState.collect { state ->
                 Log.d(TAG, "Current State: ${state::class.simpleName}")
 
-                // 수락 완료 시 쿨다운 타이머 시작
+                // ??嚥?????ш끽維??????얜굝?????????????筌믨퀣援?
                 if (state is AppState.Accepted) {
                     lastAcceptTimeMs = System.currentTimeMillis()
-                    Log.i(TAG, "[COOLDOWN] 수락 완료 — 3초 쿨다운 시작")
+                    Log.i(TAG, "[COOLDOWN] accepted state entered; cooldown started")
                 }
 
-                // 상태에 맞는 핸들러 찾기
+                // ???ㅺ컼???癲ル슢?????嶺뚮ㅎ?볠뤃??癲ル슓??젆癒る뎨?
                 val handler = stateHandlers.firstOrNull { it.canHandle(state) }
 
                 if (handler != null) {
                     try {
                         val rootNode = if (state is AppState.OfferDetected) {
-                            // 1순위: 최초 감지 시 저장한 rawNode 재사용 (오퍼 창이 사라져도 node 자체는 유효할 수 있음)
+                            // 1??筌믨퀡彛? 癲ル슔?됭짆????좊즴?? ?????濚왿몾??rawNode ??雅??(????됰군 癲ル슓????????嶺뚮ㅎ?볩쭩?node ?????????レ챺????????源낆쓱)
                             val stored = state.offer.acceptButtonNode
                             var root: android.view.accessibility.AccessibilityNodeInfo? = null
                             if (stored != null) {
@@ -467,15 +773,15 @@ class UberAccessibilityService : AccessibilityService() {
                                 val nodeOk = try { stored.childCount; true } catch (_: Exception) { false }
                                 if (nodeOk) root = stored
                             }
-                            // 2순위: stored node 무효 시 findOfferWindow() fallback
+                            // 2??筌믨퀡彛? stored node ???뺤깙????findOfferWindow() fallback
                             if (root == null) root = findOfferWindow("offer_detected_fallback", state.offer.traceContext, stored)
-                            // childCnt=1 빈 트리 감지: React Native 렌더 전환 중 → 최대 3회 대기 후 재탐색
+                            // childCnt=1 ???嶺뚮ㅎ遊뉔걡???좊즴??: React Native ???????ш낄援??濚???癲ル슔?됭짆? 3??????????濚??
                             var waitAttempt = 3
                             while (root != null && root.childCount <= 1 &&
                                 com.uber.autoaccept.utils.AccessibilityHelper.extractAllText(root).isBlank()
                                 && waitAttempt < 3) {
                                 waitAttempt++
-                                Log.w(TAG, "[PARSE] childCnt=${root.childCount} 빈 트리 감지 → 300ms 대기 후 재탐색 ($waitAttempt/3)")
+                                Log.w(TAG, "[PARSE] childCnt=${root.childCount} ???嶺뚮ㅎ遊뉔걡???좊즴?? ??300ms ????????濚??($waitAttempt/3)")
                                 delay(300)
                                 root = findOfferWindow("offer_detected_retry", state.offer.traceContext, stored)
                             }
@@ -483,12 +789,12 @@ class UberAccessibilityService : AccessibilityService() {
                         } else {
                             rootInActiveWindow
                         }
-                        // Accepting 상태: 클릭 직전에 모든 윈도우 루트 주입
+                        // Accepting ???ㅺ컼?? ?????癲ル슣?????癲ル슢?꾤땟???????됤뵣????룸Ŧ爾????낆뒩???
                 if (handler is AcceptingHandler) {
                     handler.allWindowRoots = windows?.mapNotNull { it.root } ?: emptyList()
                     handler.openCVButtonRect = openCVButtonRect
                     handler.serviceRef = this@UberAccessibilityService
-                    Log.d(TAG, "AcceptingHandler 윈도우 주입: ${handler.allWindowRoots.size}개")
+                    Log.d(TAG, "AcceptingHandler roots injected: ${handler.allWindowRoots.size}")
                 }
                 val event = handler.handle(state, rootNode)
 
@@ -503,15 +809,17 @@ class UberAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Watchdog: Online 상태에서 10초마다 자동 오퍼 스캔 (재접속 후 이벤트 없는 경우 대비)
+        // Watchdog: Online ???ㅺ컼??????10?縕?袁?맪?????筌?????됰군 ????몃펽 (??????????濚??????몄툗 ?濡ろ뜑???????
         serviceScope.launch {
             while (isActive) {
                 delay(10_000)
                 if (stateMachine.getCurrentState() is AppState.Online && ServiceState.isActive()) {
+                    if (!shouldRunWatchdogScan()) {
+                        continue
+                    }
                     val traceContext = newOfferTraceContext("watchdog", "watchdog_scan")
                     val offerRoot = findOfferWindow("watchdog", traceContext)
-                    if (offerRoot != null) {
-                        Log.i(TAG, "[WATCHDOG] Online 상태 오퍼 감지 → 파싱 시작")
+                    if (offerRoot != null) {                        Log.i(TAG, "[WATCHDOG] Online state; watchdog found an offer root")
                         dispatchDetectedOffer(offerRoot, "watchdog", "watchdog_scan", traceContext = traceContext)
                     }
                 }
@@ -534,7 +842,7 @@ class UberAccessibilityService : AccessibilityService() {
 
         if (!ServiceState.isActive()) return
 
-        Log.i(TAG, "✓ Processing accessibility event: type=${event.eventType}")
+        Log.i(TAG, "??Processing accessibility event: type=${event.eventType}")
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 handleWindowStateChanged(event)
@@ -546,13 +854,22 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 윈도우 상태 변경 처리
-     * STATE_CHANGED = 새 화면/오버레이 등장 → 오퍼 감지 즉시 시도
+     * ????됤뵣?????ㅺ컼???怨뚮뼚???癲ル슪?ｇ몭??
+     * STATE_CHANGED = ????釉먮뻤??????곷츉???源낇꼧 ?濚밸Ŧ?????????됰군 ??좊즴?? 癲ル슣鍮뽳쭕????筌먲퐣??
      */
     private fun handleWindowStateChanged(event: AccessibilityEvent) {
         val currentState = stateMachine.getCurrentState()
         val className = event.className?.toString() ?: "null"
         val packageName = event.packageName?.toString() ?: "null"
+        logDetectionStep(
+            "window_state_changed_received",
+            details = mapOf(
+                "class_name" to className,
+                "package_name" to packageName,
+                "event_text" to (event.text?.joinToString("|")?.take(120) ?: ""),
+                "source_summary" to summarizeRootBrief(event.source ?: rootInActiveWindow)
+            )
+        )
         Log.i(TAG, "[WSC] className=$className state=${currentState::class.simpleName}")
         RemoteLogger.logDiagnostic("WSC", mapOf(
             "className" to className,
@@ -583,31 +900,51 @@ class UberAccessibilityService : AccessibilityService() {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
         }
 
-        // 수락 후 쿨다운 중에는 오퍼 감지 스킵
+        // ??嚥???????얜굝????濚욌꼬?댄꺍???????됰군 ??좊즴?? ???袁⑤툞
         if (System.currentTimeMillis() - lastAcceptTimeMs < ACCEPT_COOLDOWN_MS) {
-            Log.d(TAG, "[COOLDOWN] STATE_CHANGED 무시 (쿨다운 중)")
+            Log.d(TAG, "[COOLDOWN] STATE_CHANGED ???뺤깓??(??얜굝????濚?")
+            logDetectionStep(
+                "window_state_changed_skipped_cooldown",
+                details = mapOf(
+                    "class_name" to className,
+                    "cooldown_remaining_ms" to (ACCEPT_COOLDOWN_MS - (System.currentTimeMillis() - lastAcceptTimeMs)).coerceAtLeast(0L)
+                )
+            )
             return
         }
 
-        // 콜 카드 className 게이트 — 리버스 엔지니어링으로 확인된 클래스명
+        // ???怨멸텭???className ?濡ろ뜐???????域밸Ŧ留?????????怨쀪퐨癲ル슢?????肉??嶺뚮Ĳ?됮??????????용럡
         // Window-state changes are noisy; only continue if structured offer content is visible.
         if (currentState is AppState.Online) {
+            if (!shouldProbeFromEventSource(event)) {
+                logDetectionStep(
+                    "window_state_changed_probe_skipped",
+                    details = mapOf(
+                        "class_name" to className,
+                        "package_name" to packageName,
+                        "source_summary" to summarizeRootBrief(event.source),
+                        "active_root_summary" to summarizeRootBrief(rootInActiveWindow)
+                    )
+                )
+                return
+            }
+            logDetectionStep(
+                "window_content_changed_received",
+                details = mapOf(
+                    "content_change_types" to event.contentChangeTypes,
+                    "class_name" to (event.className?.toString() ?: "null"),
+                    "package_name" to (event.packageName?.toString() ?: "null"),
+                    "source_summary" to summarizeRootBrief(event.source ?: rootInActiveWindow)
+                )
+            )
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                delay(120)
-                if (stateMachine.getCurrentState() !is AppState.Online) return@launch
-                val traceContext = newOfferTraceContext("window_state_changed", "window_state_probe")
-                val offerRoot = findOfferWindow("window_state_changed", traceContext, event.source)
-                if (offerRoot != null) {
-                    Log.i(TAG, "[WSC] structured offer confirmed after state change")
-                    dispatchDetectedOffer(
-                        offerRoot,
-                        "window_state_changed",
-                        "window_state_probe",
-                        mapOf("class_name" to className),
-                        traceContext
-                    )
-                }
+                runBurstOfferProbe(
+                    source = "window_state_changed",
+                    stage = "window_state_probe",
+                    eventSource = event.source,
+                    details = mapOf("class_name" to className)
+                )
             }
         }
     }
@@ -617,59 +954,70 @@ class UberAccessibilityService : AccessibilityService() {
      */
     private fun handleWindowContentChanged(event: AccessibilityEvent) {
         var currentState = stateMachine.getCurrentState()
-
-        // Idle 상태에서 컨텐츠 변경 = Uber 앱이 이미 열려있음 → Online 전환
+        val probeGatePassed = shouldProbeFromEventSource(event)
+        if (currentState is AppState.Online && !probeGatePassed) {
+            logDetectionStep(
+                "window_content_changed_probe_gate_bypassed",
+                details = mapOf(
+                    "content_change_types" to event.contentChangeTypes,
+                    "class_name" to (event.className?.toString() ?: "null"),
+                    "package_name" to (event.packageName?.toString() ?: "null"),
+                    "source_summary" to summarizeRootBrief(event.source),
+                    "active_root_summary" to summarizeRootBrief(rootInActiveWindow)
+                )
+            )
+        }        // If Uber is open while idle, transition to Online before probing.
         if (currentState is AppState.Idle) {
             stateMachine.handleEvent(StateEvent.UberAppOpened)
             currentState = stateMachine.getCurrentState()
         }
 
-        // 수락 후 쿨다운 중에는 오퍼 감지 스킵
+        // ??嚥???????얜굝????濚욌꼬?댄꺍???????됰군 ??좊즴?? ???袁⑤툞
         if (System.currentTimeMillis() - lastAcceptTimeMs < ACCEPT_COOLDOWN_MS) {
-            Log.d(TAG, "[COOLDOWN] CONTENT_CHANGED 무시 (쿨다운 중)")
+            Log.d(TAG, "[COOLDOWN] CONTENT_CHANGED ???뺤깓??(??얜굝????濚?")
+            logDetectionStep(
+                "window_content_changed_skipped_cooldown",
+                details = mapOf(
+                    "cooldown_remaining_ms" to (ACCEPT_COOLDOWN_MS - (System.currentTimeMillis() - lastAcceptTimeMs)).coerceAtLeast(0L),
+                    "source_summary" to summarizeRootBrief(event.source)
+                )
+            )
             return
         }
 
-        // Online 상태에서만 새로운 오퍼 감지
+        // Online ???ㅺ컼?????節뉗땡?????궈??????됰군 ??좊즴??
         if (currentState is AppState.Online) {
-            // debounce: 화면 점진적 로딩 중 과다 이벤트 필터링
+            // debounce: ??釉먮뻤?????????棺??짆?승?濚???貫??????濚????ш낄援?轅곗땡?
             offerDetectionJob?.cancel()
             offerDetectionJob = serviceScope.launch {
-                delay(50)
-                if (stateMachine.getCurrentState() !is AppState.Online) return@launch
-                val traceContext = newOfferTraceContext("window_content_changed", "content_changed")
-                val eventSource = event.source
-                logOfferSnapshot(
-                    "content_changed_received",
-                    "window_content_changed",
-                    eventSource ?: rootInActiveWindow,
-                    traceContext
+                runBurstOfferProbe(
+                    source = "window_content_changed",
+                    stage = "content_changed",
+                    eventSource = event.source,
+                    details = mapOf(
+                        "probe_gate_passed" to probeGatePassed,
+                        "content_change_types" to event.contentChangeTypes
+                    )
                 )
-                val offerRoot = findOfferWindow("window_content_changed", traceContext, eventSource)
-                if (offerRoot != null) {
-                    Log.i(TAG, "🔔 새로운 오퍼 감지!")
-                    Log.i("UAA", "[OFFER] 🔔 새 오퍼 화면 감지 → 파싱 시작")
-                    dispatchDetectedOffer(offerRoot, "window_content_changed", "content_changed", traceContext = traceContext)
-                }
             }
         }
     }
 
     /**
-     * 진단: 현재 모든 윈도우의 텍스트를 UAA_DUMP 태그로 출력
+     * 癲ル슣???? ??ш끽維??癲ル슢?꾤땟???????됤뵣???Β?爰?????몄릇?嶺? UAA_DUMP ??癰궽쇱읇????⑥レ툓??
      */
     private fun dumpWindowTexts() {
         val wins = windows ?: emptyList()
         val roots = wins.mapNotNull { it.root }.ifEmpty { listOfNotNull(rootInActiveWindow) }
-        Log.d("UAA_DUMP", "=== DUMP 윈도우수:${roots.size} ===")
+        Log.d("UAA_DUMP", "=== DUMP ????됤뵣???Β?ル묄:${roots.size} ===")
         roots.forEachIndexed { wi, root ->
             val winInfo = if (wi < wins.size) "type=${wins[wi].type} layer=${wins[wi].layer}" else "rootInActive"
             Log.d("UAA_DUMP", "[$wi] $winInfo pkg=${root.packageName} childCnt=${root.childCount}")
-            // text + contentDescription 모두 수집
+            // text + contentDescription 癲ル슢?꾤땟?嶺????쒓낯??
             val sb = StringBuilder()
             dumpNodeRecursive(root, sb, 0)
             val out = sb.toString().take(500)
-            Log.d("UAA_DUMP", "[$wi] 텍스트: $out")
+            Log.d("UAA_DUMP", "[$wi] ????몄릇?? $out")
         }
     }
 
@@ -699,11 +1047,34 @@ class UberAccessibilityService : AccessibilityService() {
             ).joinToString(":")
             val now = System.currentTimeMillis()
             if (signature == lastVisualCardSignature && now - lastVisualDetectionAtMs < 2500L) {
+                logDetectionStep(
+                    "visual_poll_skipped_duplicate",
+                    details = mapOf(
+                        "signature" to signature,
+                        "age_ms" to (now - lastVisualDetectionAtMs)
+                    )
+                )
                 return
             }
 
             lastVisualCardSignature = signature
             lastVisualDetectionAtMs = now
+            val traceContext = newOfferTraceContext("visual_poll", "visual_poll_detected")
+            logDetectionStep(
+                "visual_poll_detected",
+                traceContext,
+                mapOf(
+                    "signature" to signature,
+                    "button_center_x" to cardResult.buttonCenterX,
+                    "button_center_y" to cardResult.buttonCenterY,
+                    "card_left" to cardResult.cardRect.left,
+                    "card_top" to cardResult.cardRect.top,
+                    "active_root_summary" to summarizeRootForDetection(rootInActiveWindow)
+                )
+            )
+            if (shouldCaptureOfferSnapshot(traceContext)) {
+                saveOfferSnapshotBitmap(bitmap, traceContext, "visual_poll", "visual_poll_detected")
+            }
             RemoteLogger.logOpenCVDetection(
                 true,
                 cardResult.buttonCenterX,
@@ -712,7 +1083,6 @@ class UberAccessibilityService : AccessibilityService() {
             )
 
             val root = rootInActiveWindow ?: windows?.mapNotNull { it.root }?.firstOrNull() ?: return
-            val traceContext = newOfferTraceContext("visual_poll", "visual_poll_detected")
             dispatchDetectedOffer(
                 root,
                 "visual_poll",
@@ -733,15 +1103,16 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 모든 윈도우에서 오퍼 창 탐색
-     * - 비오퍼 화면(운행 리스트, 새로운 콜 배너 등) 제외
-     * - 오퍼 화면 로딩 완료 확인 후 반환 ("대한민국" 주소 2개 이상)
+     * 癲ル슢?꾤땟???????됤뵣???Β??군??????됰군 癲??????
+     * - ????????釉먮뻤????熬곣뫀類??域밸Ŧ遊얕짆?? ????궈?????袁⑸즲??먮き??? ??筌믨퀡??
+     * - ????됰군 ??釉먮뻤???棺??짆?승???ш끽維???嶺뚮Ĳ?됮????袁⑸즵???("??????? ??낆뒩???2?????⑤?彛?
      */
     @Volatile private var lastUiSummaryAtMs: Long = 0L
     private suspend fun findOfferWindow(
         source: String,
         traceContext: OfferTraceContext? = null,
-        preferredRoot: AccessibilityNodeInfo? = null
+        preferredRoot: AccessibilityNodeInfo? = null,
+        allowLooseTimeSignal: Boolean = false
     ): android.view.accessibility.AccessibilityNodeInfo? {
         val helper = com.uber.autoaccept.utils.AccessibilityHelper
         val snapshots = captureOfferSnapshots(source, preferredRoot)
@@ -751,11 +1122,81 @@ class UberAccessibilityService : AccessibilityService() {
                     ?: listOfNotNull(rootInActiveWindow)
             }
         }
+        logDetectionStep(
+            "find_offer_window_start",
+            traceContext,
+            mapOf(
+                "source" to source,
+                "root_count" to roots.size,
+                "preferred_root_summary" to summarizeRootBrief(preferredRoot),
+                "active_root_summary" to summarizeRootBrief(rootInActiveWindow)
+            )
+        )
+
+        val cityAddressTerms = listOf("특별시", "광역시", "특별자치시")
+        val timePatterns = listOf(
+            Regex("""\d+\s*분\s*\([\d.]+\s*km\)\s*남음"""),
+            Regex("""(?:\d+\s*시간\s*)?\d+\s*분\s*운행""")
+        )
+
+        fun looksLikeLegacyAddress(text: String?): Boolean {
+            if (text.isNullOrBlank()) return false
+            val candidate = text.trim()
+            if (candidate.length < 10) return false
+            if (candidate.endsWith("쪽")) return false
+            return cityAddressTerms.any { candidate.contains(it) }
+        }
+
+        fun hasLegacyAccept(root: AccessibilityNodeInfo): Boolean {
+            val texts = helper.extractOrderedTexts(root)
+            if (texts.any { value -> value.contains("콜 수락") || value.equals("수락", ignoreCase = true) }) {
+                return true
+            }
+            return helper.findNodeByText(root, "콜 수락", exactMatch = true) != null
+        }
+
+        fun legacyAddressTexts(root: AccessibilityNodeInfo): List<String> {
+            return helper.extractOrderedTexts(root)
+                .filter(::looksLikeLegacyAddress)
+                .distinct()
+        }
+
+        fun hasLegacyTime(root: AccessibilityNodeInfo): Boolean {
+            return helper.extractOrderedTexts(root).any { value ->
+                timePatterns.any { it.containsMatchIn(value) }
+            }
+        }
+
+        fun isNonOfferRoot(root: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+            val allText = helper.extractAllText(root)
+            val textCluster = helper.summarizeOfferTexts(
+                helper.extractOrderedTexts(root),
+                helper.collectResourceIds(root).keys
+            )
+            if (textCluster.blacklistTextHit != null) return true
+            val nonOfferKeywords = listOf(
+                "운행 리스트",
+                "새로운 콜",
+                "지금은 요청이 없습니다",
+                "요청 1건 매칭",
+                "목적지 도착",
+                "운행 명세서",
+                "요금 입력하기"
+            )
+            for (kw in nonOfferKeywords) {
+                if (allText.contains(kw)) return true
+                try {
+                    if (root.findAccessibilityNodeInfosByText(kw)?.isNotEmpty() == true) return true
+                } catch (_: Exception) {
+                }
+            }
+            return false
+        }
 
         val bestSnapshotMatch = snapshots
             .filter { (_, snapshot) ->
                 val digest = snapshot.textDigest
-                snapshot.reason != "blacklist_text_present" && !digest.contains("운행 리스트") && !digest.contains("지금은 요청이 없습니다")
+                snapshot.reason != "blacklist_text_present" && !digest.contains("?? ???") && !digest.contains("??? ??? ????")
             }
             .maxWithOrNull(compareBy<Pair<AccessibilityNodeInfo, OfferSnapshot>> { OfferSnapshotBuilder.score(it.second) }
                 .thenBy { it.second.sampleIndex }
@@ -800,6 +1241,239 @@ class UberAccessibilityService : AccessibilityService() {
             )
             return root
         }
+
+        for ((index, root) in roots.withIndex()) {
+            logDetectionStep(
+                "find_offer_window_candidate",
+                traceContext,
+                mapOf(
+                    "source" to source,
+                    "candidate_index" to index,
+                    "candidate_summary" to summarizeRootBrief(root)
+                )
+            )
+            if (isNonOfferRoot(root)) {
+                logDetectionStep(
+                    "find_offer_window_candidate_rejected_non_offer",
+                    traceContext,
+                    mapOf(
+                        "source" to source,
+                        "candidate_index" to index,
+                        "candidate_summary" to summarizeRootBrief(root)
+                    )
+                )
+                continue
+            }
+
+            val legacyAccept = hasLegacyAccept(root)
+            val legacyAddresses = legacyAddressTexts(root)
+            val legacyTime = hasLegacyTime(root)
+            val legacyPickup = helper.findNodeByViewId(root, "uda_details_pickup_address_text_view")
+                ?: helper.findNodeByViewId(root, "pick_up_address")
+            val legacyDropoff = helper.findNodeByViewId(root, "uda_details_dropoff_address_text_view")
+                ?: helper.findNodeByViewId(root, "drop_off_address")
+            if (legacyAccept || legacyAddresses.isNotEmpty() || (legacyTime && allowLooseTimeSignal) || (legacyPickup != null && legacyDropoff != null)) {
+                val legacyReason = when {
+                    legacyAccept -> "legacy_accept_text"
+                    legacyAddresses.isNotEmpty() -> "legacy_city_address_visible"
+                    legacyPickup != null && legacyDropoff != null -> "legacy_pickup_dropoff_viewid"
+                    else -> "legacy_time_signal"
+                }
+                logDetectionStep(
+                    "find_offer_window_candidate_confirmed_legacy",
+                    traceContext,
+                    mapOf(
+                        "source" to source,
+                        "candidate_index" to index,
+                        "reason" to legacyReason,
+                        "allow_loose_time_signal" to allowLooseTimeSignal,
+                        "legacy_accept" to legacyAccept,
+                        "legacy_time" to legacyTime,
+                        "legacy_address_count" to legacyAddresses.size,
+                        "pickup" to legacyAddresses.getOrNull(0),
+                        "dropoff" to legacyAddresses.getOrNull(1),
+                        "pickup_viewid_found" to (legacyPickup != null),
+                        "dropoff_viewid_found" to (legacyDropoff != null)
+                    )
+                )
+                logOfferSnapshot(
+                    "content_signal_confirmed_legacy",
+                    source,
+                    root,
+                    traceContext,
+                    mapOf(
+                        "reason" to legacyReason,
+                        "legacy_accept" to legacyAccept,
+                        "legacy_time" to legacyTime,
+                        "legacy_address_count" to legacyAddresses.size,
+                        "pickup" to legacyAddresses.getOrNull(0),
+                        "dropoff" to legacyAddresses.getOrNull(1)
+                    )
+                )
+                RemoteLogger.logOfferDetection(
+                    stage = "content_signal_confirmed_legacy",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "reason" to legacyReason,
+                        "allow_loose_time_signal" to allowLooseTimeSignal,
+                        "legacy_accept" to legacyAccept,
+                        "legacy_time" to legacyTime,
+                        "legacy_address_count" to legacyAddresses.size,
+                        "pickup" to (legacyAddresses.getOrNull(0) ?: "null"),
+                        "dropoff" to (legacyAddresses.getOrNull(1) ?: "null"),
+                        "pickup_viewid_found" to (legacyPickup != null),
+                        "dropoff_viewid_found" to (legacyDropoff != null),
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    ),
+                    traceContext = traceContext
+                )
+                return root
+            }
+
+            val contentSignal = helper.inspectOfferContent(root)
+            if (contentSignal.isStructuredOffer) {
+                val textCluster = contentSignal.textCluster
+                logDetectionStep(
+                    "find_offer_window_candidate_confirmed",
+                    traceContext,
+                    mapOf(
+                        "source" to source,
+                        "candidate_index" to index,
+                        "reason" to contentSignal.reason,
+                        "pickup" to textCluster.pickupAddress,
+                        "dropoff" to textCluster.dropoffAddress,
+                        "trip" to textCluster.tripDurationText,
+                        "eta" to textCluster.pickupEtaText,
+                        "region" to textCluster.regionText,
+                        "accept" to textCluster.acceptText,
+                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                        "has_time" to contentSignal.hasTimeContent,
+                        "has_accept" to contentSignal.hasAcceptContent,
+                        "has_region" to contentSignal.hasRegionContent
+                    )
+                )
+                logOfferSnapshot(
+                    "content_signal_confirmed",
+                    source,
+                    root,
+                    traceContext,
+                    mapOf(
+                        "reason" to contentSignal.reason,
+                        "trip" to textCluster.tripDurationText,
+                        "eta" to textCluster.pickupEtaText,
+                        "region" to textCluster.regionText,
+                        "pickup" to textCluster.pickupAddress,
+                        "dropoff" to textCluster.dropoffAddress,
+                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                        "has_time" to contentSignal.hasTimeContent,
+                        "has_accept" to contentSignal.hasAcceptContent,
+                        "has_region" to contentSignal.hasRegionContent
+                    )
+                )
+                RemoteLogger.logOfferDetection(
+                    stage = "content_signal_confirmed",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "reason" to contentSignal.reason,
+                        "trip" to (textCluster.tripDurationText ?: "null"),
+                        "eta" to (textCluster.pickupEtaText ?: "null"),
+                        "region" to (textCluster.regionText ?: "null"),
+                        "pickup" to (textCluster.pickupAddress ?: "null"),
+                        "dropoff" to (textCluster.dropoffAddress ?: "null"),
+                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                        "has_time" to contentSignal.hasTimeContent,
+                        "has_accept" to contentSignal.hasAcceptContent,
+                        "has_region" to contentSignal.hasRegionContent,
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    ),
+                    traceContext = traceContext
+                )
+                return root
+            }
+
+            val candidateReason = candidateOfferReason(root)
+            val allowLooseCandidate = when (candidateReason) {
+                "accept_content_visible", "pickup_dropoff_visible" -> true
+                "time_content_visible" -> allowLooseTimeSignal
+                else -> false
+            }
+            if (allowLooseCandidate) {
+                val textCluster = contentSignal.textCluster
+                logDetectionStep(
+                    "find_offer_window_candidate_confirmed_loose",
+                    traceContext,
+                    mapOf(
+                        "source" to source,
+                        "candidate_index" to index,
+                        "reason" to candidateReason,
+                        "allow_loose_time_signal" to allowLooseTimeSignal,
+                        "pickup" to textCluster.pickupAddress,
+                        "dropoff" to textCluster.dropoffAddress,
+                        "trip" to textCluster.tripDurationText,
+                        "eta" to textCluster.pickupEtaText,
+                        "accept" to textCluster.acceptText,
+                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                        "has_time" to contentSignal.hasTimeContent,
+                        "has_accept" to contentSignal.hasAcceptContent
+                    )
+                )
+                logOfferSnapshot(
+                    "content_signal_confirmed_loose",
+                    source,
+                    root,
+                    traceContext,
+                    mapOf(
+                        "reason" to candidateReason,
+                        "allow_loose_time_signal" to allowLooseTimeSignal,
+                        "trip" to textCluster.tripDurationText,
+                        "eta" to textCluster.pickupEtaText,
+                        "pickup" to textCluster.pickupAddress,
+                        "dropoff" to textCluster.dropoffAddress,
+                        "accept" to textCluster.acceptText
+                    )
+                )
+                RemoteLogger.logOfferDetection(
+                    stage = "content_signal_confirmed_loose",
+                    source = source,
+                    success = true,
+                    details = mapOf(
+                        "reason" to candidateReason,
+                        "allow_loose_time_signal" to allowLooseTimeSignal,
+                        "trip" to (textCluster.tripDurationText ?: "null"),
+                        "eta" to (textCluster.pickupEtaText ?: "null"),
+                        "pickup" to (textCluster.pickupAddress ?: "null"),
+                        "dropoff" to (textCluster.dropoffAddress ?: "null"),
+                        "accept" to (textCluster.acceptText ?: "null"),
+                        "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                        "has_time" to contentSignal.hasTimeContent,
+                        "has_accept" to contentSignal.hasAcceptContent,
+                        "package_name" to (root.packageName?.toString() ?: "null")
+                    ),
+                    traceContext = traceContext
+                )
+                return root
+            }
+
+            logDetectionStep(
+                "find_offer_window_candidate_rejected_signal",
+                traceContext,
+                mapOf(
+                    "source" to source,
+                    "candidate_index" to index,
+                    "reason" to contentSignal.reason,
+                    "candidate_reason" to candidateReason,
+                    "allow_loose_time_signal" to allowLooseTimeSignal,
+                    "has_pickup_dropoff" to contentSignal.hasPickupDropoffContent,
+                    "has_time" to contentSignal.hasTimeContent,
+                    "has_accept" to contentSignal.hasAcceptContent,
+                    "has_region" to contentSignal.hasRegionContent,
+                    "candidate_summary" to summarizeRootBrief(root)
+                )
+            )
+        }
+
         RemoteLogger.logOfferDetection(
             stage = "offer_window_not_found",
             source = source,
@@ -808,6 +1482,14 @@ class UberAccessibilityService : AccessibilityService() {
             traceContext = traceContext,
             throttleKey = "offer_window_not_found:$source",
             throttleMs = 20_000L
+        )
+        logDetectionStep(
+            "find_offer_window_not_found",
+            traceContext,
+            mapOf(
+                "source" to source,
+                "root_count" to roots.size
+            )
         )
         val now = System.currentTimeMillis()
         if (now - lastUiSummaryAtMs > 20_000) {
@@ -838,21 +1520,22 @@ class UberAccessibilityService : AccessibilityService() {
                         ),
                         traceContext = traceContext
                     )
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         }
         return null
     }
 
     /**
-     * 설정 로드
+     * ???源놁젳 ?棺??짆?삠궘?
      */
     private fun loadConfig(): AppConfig {
         val prefs = getSharedPreferences("uber_auto_accept", Context.MODE_PRIVATE)
 
         val enabled = prefs.getString("filter_mode", "ENABLED") != "DISABLED"
         val maxDist = prefs.getFloat("max_customer_distance",
-            prefs.getFloat("airport_pickup_max_distance", 5.0f)  // 기존값 마이그레이션
+            prefs.getFloat("airport_pickup_max_distance", 5.0f)  // ??れ삀???洹μ씀?癲ル슢???鈺곗슜?η춯琉얩뜑????⑤젰??
         ).toDouble()
 
         // device_id: read or generate once
@@ -862,7 +1545,7 @@ class UberAccessibilityService : AccessibilityService() {
             prefs.edit().putString("device_id", deviceId).apply()
         }
 
-        val pickupKeywords = listOf("특별시")
+        val pickupKeywords = listOf("\uD2B9\uBCC4\uC2DC")
 
         val selectedCondition = prefs.getInt("selected_condition", 4)
         val enabledConditions = setOf(selectedCondition)
@@ -884,25 +1567,25 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        Log.w(TAG, "서비스 중단됨 — 복구 시도")
-        Log.e("UAA", "[SERVICE] ❌ 접근성 서비스 강제 중단 (onInterrupt) — 복구 시도 중")
+        Log.w(TAG, "Service interrupted; attempting recovery")
+        Log.e("UAA", "[SERVICE] Accessibility service interrupted (onInterrupt); recovering")
         RemoteLogger.logServiceDisconnected("onInterrupt")
 
-        // ServiceState 유지 — 이벤트 재수신 시 자동 복구되도록
-        // config/filterEngine 재로드하여 stale 상태 방지
+        // ServiceState ??? ?????濚????????????筌??怨뚮옖甕걔???嚥▲꺃???
+        // config/filterEngine ??繞????モ봼??stale ???ㅺ컼???袁⑸젻泳?
         try {
             config = loadConfig()
             filterEngine = FilterEngine(config.filterSettings)
-            Log.i("UAA", "[SERVICE] ✅ onInterrupt 후 config/filterEngine 재로드 완료")
+            Log.i("UAA", "[SERVICE] onInterrupt config/filterEngine reloaded")
             RemoteLogger.logRecovery("accessibility", "on_interrupt", true,
                 mapOf("config_reloaded" to true, "shizuku_enabled" to config.enableShizuku))
         } catch (e: Exception) {
-            Log.e("UAA", "[SERVICE] onInterrupt 복구 실패: ${e.message}")
+            Log.e("UAA", "[SERVICE] onInterrupt recovery failed: ${e.message}")
             RemoteLogger.logRecovery("accessibility", "on_interrupt", false,
                 mapOf("error" to (e.message ?: "unknown")))
         }
 
-        // Shizuku 재바인딩 시도
+        // Shizuku ????嶺뚮ㅎ?????筌먲퐣??
         if (config.enableShizuku) {
             com.uber.autoaccept.utils.ShizukuHelper.bindService()
         }
@@ -918,7 +1601,8 @@ class UberAccessibilityService : AccessibilityService() {
         RemoteLogger.logServiceDisconnected("onDestroy")
         RemoteLogger.shutdown()
         serviceScope.cancel()
-        Log.i(TAG, "서비스 종료됨")
-        Log.i("UAA", "[SERVICE] 서비스 정상 종료 (onDestroy)")
+        Log.i(TAG, "Service destroyed")
+        Log.i("UAA", "[SERVICE] Service destroyed cleanly (onDestroy)")
     }
 }
+
