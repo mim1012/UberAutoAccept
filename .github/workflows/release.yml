@@ -63,17 +63,10 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk \
              UberAutoAccept-${{ steps.version.outputs.VERSION }}.apk
 
-      - name: Download Shizuku APK
+      - name: Prepare Shizuku APK
         run: |
-          SHIZUKU_URL=$(curl -s https://api.github.com/repos/rikkaapps/Shizuku/releases/latest \
-            | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' \
-            | head -1)
-          if [ -n "$SHIZUKU_URL" ] && [ "$SHIZUKU_URL" != "null" ]; then
-            curl -L -o Shizuku.apk "$SHIZUKU_URL"
-            echo "SHIZUKU_DOWNLOADED=true" >> $GITHUB_ENV
-          else
-            echo "SHIZUKU_DOWNLOADED=false" >> $GITHUB_ENV
-          fi
+          cp shizuku-v13.6.0.apk Shizuku.apk
+          echo "SHIZUKU_DOWNLOADED=true" >> $GITHUB_ENV
 
       - name: Upload APK to Supabase Storage
         env:
@@ -123,7 +116,7 @@ jobs:
               \"version_code\": ${VERSION_CODE},
               \"app_download_path\": \"UberAutoAccept-${VERSION}.apk\",
               \"shizuku_download_path\": \"${SHIZUKU_PATH}\",
-              \"shizuku_version\": \"12.2.0\",
+              \"shizuku_version\": \"13.6.0\",
               \"changelog\": $(echo "$CHANGELOG" | jq -Rs .)
             }"
 
@@ -145,3 +138,6 @@ jobs:
         with:
           name: "UberAutoAccept v${{ steps.version.outputs.VERSION }}"
           body_path: changelog.txt
+          files: |
+            UberAutoAccept-${{ steps.version.outputs.VERSION }}.apk
+            Shizuku.apk

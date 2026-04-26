@@ -20,8 +20,8 @@ android {
         // Allow CI to override version from -PversionName/-PversionCode
         def vnProp = project.findProperty('versionName')
         def vcProp = project.findProperty('versionCode')
-        versionName (vnProp ?: "3.0.1")
-        versionCode ((vcProp ?: 30001).toString().toInteger())
+        versionName (vnProp ?: "4.0.0")
+        versionCode ((vcProp ?: 40000).toString().toInteger())
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
